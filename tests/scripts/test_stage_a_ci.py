@@ -1,13 +1,14 @@
 from scripts.summarize_stage_a_ci import summarize_ci_for_item
 
 
-def _row(label, r_c, r_v, r_t, score_margin, ensemble_uncertainty):
+def _row(label, r_c, r_v, r_t, r_u, score_margin, ensemble_uncertainty):
     return {
         "a_c": 0,
         "a_v": 1 if label else 0,
         "r_c": r_c,
         "r_v": r_v,
         "r_t": r_t,
+        "r_u": r_u,
         "label": label,
         "score_margin": score_margin,
         "uncertainty_proxy": ensemble_uncertainty,
@@ -23,10 +24,10 @@ def test_summarize_ci_for_item_reports_policy_and_delta_intervals():
         "push_error_rate": 0.5,
         "budget_sweep": [{"train_rows": 2, "budget_fraction": 0.5}],
         "rows": [
-            _row(1, 0.0, 1.0, 0.5, 0.1, 1.0),
-            _row(0, 0.5, 0.5, 0.5, 1.0, 0.0),
-            _row(1, 0.0, 1.0, 0.5, 0.2, 1.0),
-            _row(0, 0.5, 0.5, 0.5, 1.1, 0.0),
+            _row(1, 0.0, 1.0, 0.5, 0.75, 0.1, 1.0),
+            _row(0, 0.5, 0.5, 0.5, 0.50, 1.0, 0.0),
+            _row(1, 0.0, 1.0, 0.5, 0.75, 0.2, 1.0),
+            _row(0, 0.5, 0.5, 0.5, 0.50, 1.1, 0.0),
         ],
     }
 
@@ -36,3 +37,4 @@ def test_summarize_ci_for_item_reports_policy_and_delta_intervals():
     assert summary["budget_fraction"] == 0.5
     assert "decision" in summary["policy_ci"]
     assert "decision_minus_uncertainty" in summary["delta_ci"]
+    assert "decision_minus_uniform_true" in summary["delta_ci"]

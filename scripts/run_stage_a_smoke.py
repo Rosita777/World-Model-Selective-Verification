@@ -66,9 +66,13 @@ def build_rows(
     uncertainty_seeds: int = 1,
     think_longer_depth: int | None = None,
     think_longer_width: int | None = None,
+    uniform_true_depth: int | None = None,
+    uniform_true_width: int | None = None,
 ) -> list[dict]:
     think_longer_depth = think_longer_depth or cheap_depth * 2
     think_longer_width = think_longer_width or cheap_width * 2
+    uniform_true_depth = uniform_true_depth or think_longer_depth
+    uniform_true_width = uniform_true_width or think_longer_width
     cheap = BeamPlanner(
         PotentialEvaluator(DegradedPushEvaluator(
             push_error_rate=push_error_rate,
@@ -86,6 +90,11 @@ def build_rows(
         width=think_longer_width,
     )
     verifier = BeamPlanner(PotentialEvaluator(TrueEvaluator()), depth=verifier_depth, width=verifier_width)
+    uniform_true = BeamPlanner(
+        PotentialEvaluator(TrueEvaluator()),
+        depth=uniform_true_depth,
+        width=uniform_true_width,
+    )
     evaluator = BeamPlanner(PotentialEvaluator(TrueEvaluator()), depth=eval_depth, width=eval_width)
     uncertainty_planners = [
         BeamPlanner(
@@ -108,6 +117,11 @@ def build_rows(
         row["r_t"] = evaluate_first_action(state, think_longer_result.action, evaluator)
         row["think_longer_score"] = think_longer_result.score
         row["think_longer_nodes"] = think_longer_result.nodes_expanded
+        uniform_true_result = uniform_true.plan(state)
+        row["a_u"] = uniform_true_result.action
+        row["r_u"] = evaluate_first_action(state, uniform_true_result.action, evaluator)
+        row["uniform_true_score"] = uniform_true_result.score
+        row["uniform_true_nodes"] = uniform_true_result.nodes_expanded
         uncertainty = ensemble_uncertainty(state, uncertainty_planners)
         row["ensemble_action_disagreement"] = uncertainty["action_disagreement"]
         row["ensemble_score_variance"] = uncertainty["score_variance"]
@@ -157,6 +171,12 @@ def mean_think_longer_nodes(rows: list[dict]) -> float:
     return sum(float(row.get("think_longer_nodes", row["cheap_nodes"])) for row in rows) / len(rows)
 
 
+def mean_uniform_true_nodes(rows: list[dict]) -> float:
+    if not rows:
+        return 0.0
+    return sum(float(row.get("uniform_true_nodes", row["cheap_nodes"])) for row in rows) / len(rows)
+
+
 def masked_return_values(rows: list[dict], verify_mask: list[bool]) -> list[float]:
     if len(rows) != len(verify_mask):
         raise ValueError("rows and verify_mask must have the same length")
@@ -188,6 +208,7 @@ def policy_return_vectors(
         "cheap": [float(row["r_c"]) for row in eval_rows],
         "always": [float(row["r_v"]) for row in eval_rows],
         "think_longer": [float(row.get("r_t", row["r_c"])) for row in eval_rows],
+        "uniform_true": [float(row.get("r_u", row["r_c"])) for row in eval_rows],
         "uncertainty": masked_return_values(eval_rows, uncertainty_mask),
         "random": masked_return_values(eval_rows, random_mask),
         "oracle": masked_return_values(eval_rows, oracle_mask),
@@ -221,6 +242,10 @@ def evaluate_rankers(
         sum(float(row.get("r_t", row["r_c"])) for row in eval_rows) / len(eval_rows)
         if eval_rows else 0.0
     )
+    uniform_true_return = (
+        sum(float(row.get("r_u", row["r_c"])) for row in eval_rows) / len(eval_rows)
+        if eval_rows else 0.0
+    )
     uncertainty_scores = [
         float(row.get("ensemble_uncertainty", row["uncertainty_proxy"]))
         for row in eval_rows
@@ -243,6 +268,7 @@ def evaluate_rankers(
         "cheap_return": cheap_return,
         "always_return": always_return,
         "think_longer_return": think_longer_return,
+        "uniform_true_return": uniform_true_return,
         "uncertainty_return": uncertainty_return,
         "random_return": random_return,
         "oracle_return": oracle_return,
@@ -254,6 +280,7 @@ def evaluate_rankers(
         "cheap_nodes": mean_policy_nodes(eval_rows, [False] * len(eval_rows)),
         "always_nodes": mean_policy_nodes(eval_rows, [True] * len(eval_rows)),
         "think_longer_nodes": mean_think_longer_nodes(eval_rows),
+        "uniform_true_nodes": mean_uniform_true_nodes(eval_rows),
         "uncertainty_nodes": mean_policy_nodes(eval_rows, uncertainty_mask),
         "random_nodes": mean_policy_nodes(eval_rows, random_mask),
         "oracle_nodes": mean_policy_nodes(eval_rows, oracle_mask),
@@ -313,6 +340,8 @@ def main() -> None:
     parser.add_argument("--uncertainty-seeds", type=int, default=5)
     parser.add_argument("--think-longer-depth", type=int, default=None)
     parser.add_argument("--think-longer-width", type=int, default=None)
+    parser.add_argument("--uniform-true-depth", type=int, default=None)
+    parser.add_argument("--uniform-true-width", type=int, default=None)
     parser.add_argument("--train-fraction", type=float, default=0.5)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--budgets", default=None)
@@ -335,6 +364,8 @@ def main() -> None:
             uncertainty_seeds=args.uncertainty_seeds,
             think_longer_depth=args.think_longer_depth,
             think_longer_width=args.think_longer_width,
+            uniform_true_depth=args.uniform_true_depth,
+            uniform_true_width=args.uniform_true_width,
         )
         train_rows, eval_rows = split_rows(rows, args.train_fraction)
         counts = summarize_labels(rows, epsilon=0.01)

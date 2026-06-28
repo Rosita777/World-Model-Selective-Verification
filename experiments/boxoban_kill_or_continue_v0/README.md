@@ -391,3 +391,113 @@ uniform true-simulator baseline, which would test whether uniformly
 spending a smaller amount of verifier-quality compute can match
 selective deep verification.
 ```
+
+## 2026-06-28 Update: Uniform True-Simulator Baseline
+
+To address the strongest fairness critique, the runner now includes:
+
+```text
+uniform_true baseline:
+    every eval state gets a shallow beam search with the true simulator
+    instead of selecting a subset of states for a deep verifier call
+
+main setting:
+    uniform_true depth = 3, width = 12
+    average nodes per eval state = 68
+
+comparison point:
+    decision-aware selective verification at budget = 0.25
+    average nodes per eval state = 73
+```
+
+Command:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 1000 \
+  --out outputs/boxoban_kill_or_continue_v0/stage_a_boxoban1000_uniform_true_w12.json \
+  --budget 0.25 \
+  --budgets 0.05,0.10,0.25,0.50,1.00 \
+  --penalty 1.0 \
+  --cheap-depth 1 \
+  --cheap-width 4 \
+  --think-longer-depth 3 \
+  --think-longer-width 16 \
+  --uniform-true-depth 3 \
+  --uniform-true-width 12 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --train-fraction 0.5 \
+  --random-seed 0
+```
+
+Budget sweep at `push_error_rate = 0.50`:
+
+| budget | cheap | think-longer | uniform true | uncertainty | decision-aware | oracle | always verify |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.05 | 0.195 | 0.199 | 0.213 | 0.197 | 0.198 | 0.208 | 0.220 |
+| 0.10 | 0.195 | 0.199 | 0.213 | 0.199 | 0.204 | 0.217 | 0.220 |
+| 0.25 | 0.195 | 0.199 | 0.213 | 0.207 | 0.211 | 0.223 | 0.220 |
+| 0.50 | 0.195 | 0.199 | 0.213 | 0.212 | 0.212 | 0.223 | 0.220 |
+| 1.00 | 0.195 | 0.199 | 0.213 | 0.220 | 0.220 | 0.220 | 0.220 |
+
+Budget sweep at `push_error_rate = 0.75`:
+
+| budget | cheap | think-longer | uniform true | uncertainty | decision-aware | oracle | always verify |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.05 | 0.186 | 0.188 | 0.213 | 0.189 | 0.190 | 0.201 | 0.220 |
+| 0.10 | 0.186 | 0.188 | 0.213 | 0.191 | 0.194 | 0.212 | 0.220 |
+| 0.25 | 0.186 | 0.188 | 0.213 | 0.200 | 0.204 | 0.223 | 0.220 |
+| 0.50 | 0.186 | 0.188 | 0.213 | 0.206 | 0.209 | 0.223 | 0.220 |
+| 1.00 | 0.186 | 0.188 | 0.213 | 0.220 | 0.220 | 0.220 | 0.220 |
+
+Paired bootstrap CI at `budget = 0.25`:
+
+| push error | delta | mean | 95% CI |
+|---:|---|---:|---:|
+| 0.50 | decision - uniform true | -0.0017 | [-0.0062, 0.0026] |
+| 0.50 | decision - uncertainty | 0.0040 | [0.0016, 0.0070] |
+| 0.50 | decision - think-longer | 0.0128 | [0.0064, 0.0194] |
+| 0.75 | decision - uniform true | -0.0091 | [-0.0151, -0.0035] |
+| 0.75 | decision - uncertainty | 0.0041 | [0.0017, 0.0068] |
+| 0.75 | decision - think-longer | 0.0155 | [0.0097, 0.0216] |
+
+Interpretation:
+
+```text
+This is a negative but important result.
+
+Decision-aware selection remains better than random, uncertainty, and
+cheap-model think-longer at budget = 0.25.
+
+However, a uniform shallow true-simulator planner is stronger than the
+current decision-aware selective verifier at similar compute. At
+push_error_rate = 0.50 they are statistically tied; at push_error_rate =
+0.75 uniform true is significantly better.
+
+Therefore the current Stage A result should not claim that selective
+verification beats all uniform compute allocation. It supports a narrower
+claim: when the alternative is spending more compute inside the degraded
+cheap model, or triggering verification by uncertainty, decision-aware
+selection is better. If verifier-quality simulation is cheap enough to
+apply uniformly, uniform true search is a very strong baseline.
+```
+
+Current judgment:
+
+```text
+Continue cautiously, but the next experiment must directly compare
+strictly compute-matched true-simulator allocation curves.
+
+The strongest current research question becomes:
+
+    When is selective deep verification better than uniform shallow
+    verifier-quality search?
+
+The current Boxoban Stage A setting does not yet answer this in favor of
+decision-aware selection.
+```

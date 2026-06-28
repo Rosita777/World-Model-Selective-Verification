@@ -37,7 +37,7 @@ def summarize_ci_for_item(
     }
     delta_ci = {}
     if "decision" in vectors:
-        for baseline in ["random", "uncertainty", "think_longer", "cheap"]:
+        for baseline in ["random", "uncertainty", "think_longer", "uniform_true", "cheap"]:
             delta_ci[f"decision_minus_{baseline}"] = bootstrap_paired_delta_ci(
                 vectors["decision"],
                 vectors[baseline],
