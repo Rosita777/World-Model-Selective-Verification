@@ -1,0 +1,57 @@
+# Secrets
+token.txt
+.env
+.env.*
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Large data and generated artifacts
+data/*
+!data/.gitkeep
+!data/**/*.md
+!data/**/*.txt
+!data/**/*.json
+outputs/*
+!outputs/.gitkeep
+!outputs/**/*.md
+experiments/**/checkpoints/
+experiments/**/wandb/
+experiments/**/tensorboard/
+experiments/**/cache/
+
+# Model weights and large arrays
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.npz
+*.npy
+*.h5
+*.pkl
+*.pickle
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# Local OS/editor noise
+.DS_Store
+Thumbs.db
