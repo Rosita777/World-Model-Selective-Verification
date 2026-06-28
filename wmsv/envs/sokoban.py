@@ -47,6 +47,10 @@ class SokobanState:
     def is_solved(self) -> bool:
         return bool(np.all(self.boxes <= self.goals) and self.boxes.sum() == self.goals.sum())
 
+    def boxes_on_goals_fraction(self) -> float:
+        total = max(float(self.boxes.sum()), 1.0)
+        return float(np.logical_and(self.boxes, self.goals).sum()) / total
+
     def encode(self) -> np.ndarray:
         player_channel = np.zeros_like(self.walls, dtype=np.float32)
         player_channel[tuple(self.player)] = 1.0
@@ -129,4 +133,3 @@ def parse_level(lines: list[str]) -> SokobanState:
         raise ValueError("Level does not contain a player")
 
     return SokobanState(walls=walls, goals=goals, boxes=boxes, player=player)
-
