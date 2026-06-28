@@ -1,13 +1,29 @@
-from scripts.run_stage_a_smoke import build_rows, evaluate_rankers, split_rows
+from scripts.run_stage_a_smoke import (
+    build_rows,
+    evaluate_rankers,
+    parse_budget_list,
+    policy_return_vectors,
+    run_budget_sweep,
+    split_rows,
+)
 
 
 def test_build_rows_returns_label_rows_for_tiny_levels():
-    rows = build_rows(push_error_rate=1.0, corrupt_push_penalty=1.0, uncertainty_seeds=3)
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        uncertainty_seeds=3,
+        cheap_depth=1,
+        cheap_width=2,
+        think_longer_depth=2,
+        think_longer_width=4,
+    )
 
     assert len(rows) >= 2
-    assert {"level_id", "a_c", "a_v", "r_c", "r_v", "label"}.issubset(rows[0])
+    assert {"level_id", "a_c", "a_v", "a_t", "r_c", "r_v", "r_t", "label"}.issubset(rows[0])
     assert {"ensemble_action_disagreement", "ensemble_score_variance", "ensemble_uncertainty"}.issubset(rows[0])
     assert rows[0]["ensemble_num_planners"] == 3
+    assert rows[0]["think_longer_nodes"] > rows[0]["cheap_nodes"]
 
 
 def test_evaluate_rankers_reports_core_returns():
@@ -18,6 +34,7 @@ def test_evaluate_rankers_reports_core_returns():
     assert {
         "cheap_return",
         "always_return",
+        "think_longer_return",
         "uncertainty_return",
         "random_return",
         "oracle_return",
@@ -27,11 +44,21 @@ def test_evaluate_rankers_reports_core_returns():
         "oracle_selection",
         "decision_selection",
         "eval_rows",
+        "cheap_nodes",
+        "always_nodes",
+        "think_longer_nodes",
+        "uncertainty_nodes",
+        "random_nodes",
+        "oracle_nodes",
+        "decision_nodes",
     }.issubset(result)
     assert isinstance(result["cheap_return"], float)
     assert isinstance(result["always_return"], float)
+    assert isinstance(result["think_longer_return"], float)
     assert result["eval_rows"] == len(rows)
     assert "helpful_precision" in result["uncertainty_selection"]
+    assert result["always_nodes"] > result["cheap_nodes"]
+    assert result["think_longer_nodes"] >= result["cheap_nodes"]
 
 
 def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
@@ -41,6 +68,7 @@ def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
             "a_v": 1,
             "r_c": 0.0,
             "r_v": 1.0,
+            "r_t": 0.5,
             "label": 1,
             "score_margin": 0.1,
             "uncertainty_proxy": 0.0,
@@ -48,12 +76,16 @@ def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
             "ensemble_action_disagreement": 0.0,
             "ensemble_score_variance": 0.0,
             "ensemble_uncertainty": 0.0,
+            "cheap_nodes": 10,
+            "verifier_nodes": 100,
+            "think_longer_nodes": 30,
         },
         {
             "a_c": 0,
             "a_v": 1,
             "r_c": 0.0,
             "r_v": 0.8,
+            "r_t": 0.25,
             "label": 1,
             "score_margin": 0.2,
             "uncertainty_proxy": 1.0,
@@ -61,12 +93,16 @@ def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
             "ensemble_action_disagreement": 1.0,
             "ensemble_score_variance": 0.0,
             "ensemble_uncertainty": 1.0,
+            "cheap_nodes": 10,
+            "verifier_nodes": 100,
+            "think_longer_nodes": 30,
         },
         {
             "a_c": 0,
             "a_v": 0,
             "r_c": 0.5,
             "r_v": 0.5,
+            "r_t": 0.75,
             "label": 0,
             "score_margin": 1.0,
             "uncertainty_proxy": 0.5,
@@ -74,12 +110,16 @@ def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
             "ensemble_action_disagreement": 0.5,
             "ensemble_score_variance": 0.0,
             "ensemble_uncertainty": 0.5,
+            "cheap_nodes": 10,
+            "verifier_nodes": 100,
+            "think_longer_nodes": 30,
         },
         {
             "a_c": 0,
             "a_v": 1,
             "r_c": 0.5,
             "r_v": 0.0,
+            "r_t": 0.25,
             "label": 0,
             "score_margin": 1.1,
             "uncertainty_proxy": 0.4,
@@ -87,6 +127,9 @@ def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
             "ensemble_action_disagreement": 0.4,
             "ensemble_score_variance": 0.0,
             "ensemble_uncertainty": 0.4,
+            "cheap_nodes": 10,
+            "verifier_nodes": 100,
+            "think_longer_nodes": 30,
         },
     ]
 
@@ -95,6 +138,35 @@ def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
     assert result["oracle_return"] == 0.5
     assert result["oracle_selection"]["helpful_selected"] == 1
     assert isinstance(result["random_return"], float)
+    assert result["think_longer_return"] == 0.4375
+    assert result["cheap_nodes"] == 10
+    assert result["always_nodes"] == 110
+    assert result["think_longer_nodes"] == 30
+    assert result["oracle_nodes"] == 35
+
+
+def test_parse_budget_list_accepts_comma_separated_fractions():
+    assert parse_budget_list("0.05,0.10,0.25") == [0.05, 0.1, 0.25]
+
+
+def test_run_budget_sweep_reports_one_result_per_budget():
+    rows = build_rows(push_error_rate=1.0, corrupt_push_penalty=1.0)
+    train_rows, eval_rows = split_rows(rows, train_fraction=0.5)
+
+    sweep = run_budget_sweep(train_rows, eval_rows, budgets=[0.25, 0.5], random_seed=0)
+
+    assert [item["budget_fraction"] for item in sweep] == [0.25, 0.5]
+    assert all("decision_return" in item for item in sweep)
+
+
+def test_policy_return_vectors_report_per_level_values_for_ci():
+    rows = build_rows(push_error_rate=1.0, corrupt_push_penalty=1.0)
+    train_rows, eval_rows = split_rows(rows, train_fraction=0.5)
+
+    vectors = policy_return_vectors(train_rows, eval_rows, budget_fraction=0.5, random_seed=0)
+
+    assert {"cheap", "always", "think_longer", "uncertainty", "random", "oracle"}.issubset(vectors)
+    assert all(len(values) == len(eval_rows) for values in vectors.values())
 
 
 def test_build_rows_can_read_boxoban_folder(tmp_path):
