@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wmsv"
+version = "0.1.0"
+description = "Decision-aware selective verification for budgeted world-model planning"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["wmsv*"]
