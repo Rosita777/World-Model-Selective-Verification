@@ -1,6 +1,6 @@
 from wmsv.envs.sokoban import Action, parse_level
 from wmsv.planning.beam import BeamPlanner
-from wmsv.planning.evaluators import DegradedPushEvaluator, TrueEvaluator
+from wmsv.planning.evaluators import DegradedPushEvaluator, PotentialEvaluator, TrueEvaluator
 
 
 def test_true_evaluator_scores_one_step_solution_highest():
@@ -37,3 +37,11 @@ def test_degraded_push_evaluator_can_hide_successful_pushes():
     assert evaluator.uncertainty(state, int(Action.RIGHT)) == 1.0
     assert evaluator.uncertainty(state, int(Action.UP)) == 0.0
 
+
+def test_potential_evaluator_rewards_moving_box_closer_to_goal():
+    state = parse_level(["######", "# @$ #", "#   .#", "######"])
+    evaluator = PotentialEvaluator(TrueEvaluator())
+
+    step = evaluator.step(state, int(Action.RIGHT))
+
+    assert step.reward > 0.0

@@ -1,7 +1,7 @@
 from wmsv.analysis.stage_a import evaluate_first_action, make_label_row
 from wmsv.envs.sokoban import Action, parse_level
 from wmsv.planning.beam import BeamPlanner
-from wmsv.planning.evaluators import DegradedPushEvaluator, TrueEvaluator
+from wmsv.planning.evaluators import DegradedPushEvaluator, PotentialEvaluator, TrueEvaluator
 
 
 def test_evaluate_first_action_scores_immediate_solution():
@@ -11,6 +11,15 @@ def test_evaluate_first_action_scores_immediate_solution():
     score = evaluate_first_action(state, int(Action.RIGHT), evaluator)
 
     assert score == 1.0
+
+
+def test_evaluate_first_action_uses_dense_planning_return():
+    state = parse_level(["######", "# @$ #", "#   .#", "######"])
+    evaluator = BeamPlanner(PotentialEvaluator(TrueEvaluator()), depth=1, width=4)
+
+    score = evaluate_first_action(state, int(Action.RIGHT), evaluator)
+
+    assert score > 0.0
 
 
 def test_make_label_row_marks_degraded_cheap_as_helpfully_fixable():

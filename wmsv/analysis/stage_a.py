@@ -6,13 +6,18 @@ from wmsv.planning.beam import BeamPlanner
 
 
 def evaluate_first_action(state: SokobanState, action: int, evaluator: BeamPlanner) -> float:
-    next_state, _, done, _ = state.step(Action(action))
+    if hasattr(evaluator, "evaluator"):
+        step = evaluator.evaluator.step(state, int(action))
+        next_state = step.state
+        first_reward = float(step.reward)
+        done = step.done
+    else:
+        next_state, first_reward, done, _ = state.step(Action(action))
+
     if done:
         return 1.0
     result = evaluator.plan(next_state)
-    if result.score >= 1.0:
-        return 1.0
-    return next_state.boxes_on_goals_fraction()
+    return float(first_reward + result.score + next_state.boxes_on_goals_fraction())
 
 
 def score_margin(top_action_scores: dict[int, float]) -> float:

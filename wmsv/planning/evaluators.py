@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
+import numpy as np
+
 from wmsv.envs.sokoban import Action, SokobanState
 
 
@@ -57,3 +59,35 @@ class DegradedPushEvaluator:
         digest.update(str(int(action)).encode("utf-8"))
         value = int.from_bytes(digest.digest()[:8], "big") / float(2**64 - 1)
         return value < self.push_error_rate
+
+
+class PotentialEvaluator:
+    """Adds dense progress reward to a base evaluator."""
+
+    def __init__(self, base_evaluator, scale: float = 0.1):
+        self.base_evaluator = base_evaluator
+        self.scale = float(scale)
+
+    def step(self, state: SokobanState, action: int) -> EvaluatedStep:
+        before = self.potential(state)
+        step = self.base_evaluator.step(state, action)
+        after = self.potential(step.state)
+        shaped_reward = step.reward + self.scale * (after - before)
+        return EvaluatedStep(step.state, shaped_reward, step.done)
+
+    def uncertainty(self, state: SokobanState, action: int) -> float:
+        if hasattr(self.base_evaluator, "uncertainty"):
+            return float(self.base_evaluator.uncertainty(state, action))
+        return 0.0
+
+    @staticmethod
+    def potential(state: SokobanState) -> float:
+        boxes = np.argwhere(state.boxes)
+        goals = np.argwhere(state.goals)
+        if len(boxes) == 0 or len(goals) == 0:
+            return 0.0
+        total = 0.0
+        for box in boxes:
+            distances = np.abs(goals - box).sum(axis=1)
+            total += float(distances.min())
+        return -total
