@@ -21,7 +21,7 @@ gate:
     simple supervised centroid score over cheap-planner features
 
 baseline:
-    uncertainty-proxy ranking from the degraded evaluator
+    random, uncertainty ranking, decision-aware gate, oracle upper bound
 ```
 
 This is not a paper result. It is a kill-or-continue engineering check.
@@ -111,3 +111,97 @@ the feasibility base rates can be tuned into a useful range;
 the first decision-aware gate is not yet strong enough.
 ```
 
+## 2026-06-28 Update: 500-Level Split With Stronger Baselines
+
+After the first smoke, the script was upgraded with:
+
+```text
+train/eval split:
+    fit the decision gate on train rows, report returns on eval rows
+
+ensemble uncertainty:
+    rank verification calls by action disagreement + score variance across
+    5 degraded cheap planners
+
+random baseline:
+    fixed-seed random selection under the same verification budget
+
+oracle baseline:
+    upper bound that ranks eval rows by true r_v - r_c
+```
+
+Command:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 500 \
+  --out outputs/boxoban_kill_or_continue_v0/stage_a_boxoban500_weakcheap.json \
+  --budget 0.25 \
+  --penalty 1.0 \
+  --cheap-depth 1 \
+  --cheap-width 4 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --train-fraction 0.5 \
+  --random-seed 0
+```
+
+Result summary:
+
+| push error | helpful | harmful | wasted | cheap | random | uncertainty | decision-aware | oracle | always verify |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.00 | 0.060 | 0.002 | 0.760 | 0.199 | 0.200 | 0.200 | 0.202 | 0.210 | 0.210 |
+| 0.25 | 0.108 | 0.004 | 0.648 | 0.194 | 0.195 | 0.198 | 0.199 | 0.210 | 0.210 |
+| 0.50 | 0.158 | 0.004 | 0.546 | 0.186 | 0.191 | 0.192 | 0.198 | 0.210 | 0.210 |
+| 0.75 | 0.200 | 0.004 | 0.462 | 0.176 | 0.182 | 0.190 | 0.193 | 0.210 | 0.210 |
+| 1.00 | 0.242 | 0.012 | 0.338 | 0.169 | 0.180 | 0.176 | 0.177 | 0.212 | 0.210 |
+
+Helpful precision among selected verification calls:
+
+| push error | random | uncertainty | decision-aware | oracle |
+|---:|---:|---:|---:|---:|
+| 0.00 | 0.03 | 0.02 | 0.08 | 0.21 |
+| 0.25 | 0.03 | 0.10 | 0.13 | 0.34 |
+| 0.50 | 0.13 | 0.16 | 0.29 | 0.52 |
+| 0.75 | 0.16 | 0.31 | 0.37 | 0.71 |
+| 1.00 | 0.24 | 0.16 | 0.18 | 0.87 |
+
+Interpretation:
+
+```text
+The cleanest regime is push_error_rate = 0.50 or 0.75.
+
+In those regimes, decision-aware selection beats random and ensemble
+uncertainty under the same 25% verification budget.
+
+The oracle upper bound remains much higher, so the current gate is not
+near the ceiling.
+
+At push_error_rate = 1.00 the current centroid gate degrades and should
+not be used as the main claim.
+```
+
+External-review critique from Opus:
+
+```text
+The most dangerous weakness is not the gate architecture. It is whether
+the experiment creates enough cheap-vs-verifier decision gap and enough
+eval examples for the comparison to be statistically meaningful.
+
+Recommended next move: keep Sokoban/Boxoban, but run larger samples,
+report oracle upper bound, and focus the main analysis on Goldilocks
+regimes where helpful verification is neither too rare nor too trivial.
+```
+
+Current judgment:
+
+```text
+Continue. The 500-level split gives a real positive signal against
+random and uncertainty baselines at intermediate degradation levels, but
+the current gate is still a first diagnostic controller, not a final
+paper-quality method.
+```

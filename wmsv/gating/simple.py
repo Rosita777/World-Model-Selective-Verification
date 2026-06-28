@@ -62,3 +62,34 @@ def mean_policy_return(rows: list[dict], verify_mask: list[bool]) -> float:
     ]
     return sum(returns) / len(returns)
 
+
+def selection_summary(rows: list[dict], verify_mask: list[bool], epsilon: float = 0.01) -> dict:
+    if len(rows) != len(verify_mask):
+        raise ValueError("rows and verify_mask must have the same length")
+    selected = 0
+    helpful = 0
+    harmful = 0
+    spurious = 0
+    wasted = 0
+    for row, verify in zip(rows, verify_mask):
+        if not verify:
+            continue
+        selected += 1
+        action_changed = row["a_v"] != row["a_c"]
+        delta = float(row["r_v"]) - float(row["r_c"])
+        if action_changed and delta > epsilon:
+            helpful += 1
+        elif action_changed and delta < -epsilon:
+            harmful += 1
+        elif action_changed:
+            spurious += 1
+        else:
+            wasted += 1
+    return {
+        "selected": selected,
+        "helpful_selected": helpful,
+        "harmful_selected": harmful,
+        "spurious_selected": spurious,
+        "wasted_selected": wasted,
+        "helpful_precision": helpful / selected if selected else 0.0,
+    }

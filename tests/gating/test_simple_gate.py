@@ -2,6 +2,7 @@ from wmsv.gating.simple import (
     CentroidGate,
     fit_centroid_gate,
     mean_policy_return,
+    selection_summary,
     top_fraction_mask,
 )
 
@@ -35,6 +36,26 @@ def test_mean_policy_return_uses_verified_return_when_masked():
     assert value == 0.5
 
 
+def test_selection_summary_counts_selected_verification_outcomes():
+    rows = [
+        {"a_c": 0, "a_v": 1, "r_c": 0.0, "r_v": 1.0},
+        {"a_c": 0, "a_v": 1, "r_c": 1.0, "r_v": 0.0},
+        {"a_c": 0, "a_v": 1, "r_c": 0.5, "r_v": 0.5},
+        {"a_c": 0, "a_v": 0, "r_c": 0.5, "r_v": 0.5},
+    ]
+
+    summary = selection_summary(rows, [True, True, False, True], epsilon=0.01)
+
+    assert summary == {
+        "selected": 3,
+        "helpful_selected": 1,
+        "harmful_selected": 1,
+        "spurious_selected": 0,
+        "wasted_selected": 1,
+        "helpful_precision": 1 / 3,
+    }
+
+
 def test_centroid_gate_requires_positive_and_negative_examples():
     try:
         fit_centroid_gate([{"score_margin": 0.1, "label": 1}], feature_names=["score_margin"])
@@ -42,4 +63,3 @@ def test_centroid_gate_requires_positive_and_negative_examples():
         assert "positive and negative" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
-
