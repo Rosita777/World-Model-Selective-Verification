@@ -92,7 +92,7 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--random-seed", type=int, default=0)
-    parser.add_argument("--gate-feature-set", choices=["base", "plan"], default="base")
+    parser.add_argument("--gate-feature-set", choices=["base", "plan", "trajectory"], default="base")
     args = parser.parse_args()
 
     rates = parse_budget_list(args.rates) if args.rates else None

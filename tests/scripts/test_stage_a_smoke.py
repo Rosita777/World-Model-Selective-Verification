@@ -113,6 +113,34 @@ def test_plan_gate_features_do_not_use_verifier_outputs():
     assert all("verifier" not in name for name in feature_names)
 
 
+def test_build_rows_adds_trajectory_gate_features():
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        cheap_depth=3,
+        cheap_width=4,
+        verifier_depth=3,
+        verifier_width=4,
+        eval_depth=3,
+        eval_width=4,
+        uncertainty_seeds=3,
+        decision_unit="plan",
+    )
+
+    assert {
+        "cheap_plan_final_progress",
+        "cheap_plan_state_change_fraction",
+        "cheap_plan_box_change_fraction",
+        "ensemble_plan_disagreement",
+    }.issubset(rows[0])
+
+
+def test_trajectory_gate_features_do_not_use_verifier_outputs():
+    feature_names = gate_features_for_set("trajectory")
+
+    assert all("verifier" not in name for name in feature_names)
+
+
 def test_evaluate_rankers_accepts_plan_gate_feature_set():
     rows = build_rows(
         push_error_rate=1.0,
@@ -129,6 +157,26 @@ def test_evaluate_rankers_accepts_plan_gate_feature_set():
     result = evaluate_rankers(rows, rows, budget_fraction=0.5, gate_feature_set="plan")
 
     assert result["gate_feature_set"] == "plan"
+    assert isinstance(result["decision_return"], float)
+
+
+def test_evaluate_rankers_accepts_trajectory_gate_feature_set():
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        cheap_depth=3,
+        cheap_width=4,
+        verifier_depth=3,
+        verifier_width=4,
+        eval_depth=3,
+        eval_width=4,
+        uncertainty_seeds=3,
+        decision_unit="plan",
+    )
+
+    result = evaluate_rankers(rows, rows, budget_fraction=0.5, gate_feature_set="trajectory")
+
+    assert result["gate_feature_set"] == "trajectory"
     assert isinstance(result["decision_return"], float)
 
 

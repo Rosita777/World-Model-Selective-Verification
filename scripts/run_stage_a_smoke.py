@@ -67,6 +67,12 @@ PLAN_GATE_FEATURES = BASE_GATE_FEATURES + [
     "cheap_plan_unique_actions",
     "cheap_plan_score_per_step",
 ]
+TRAJECTORY_GATE_FEATURES = PLAN_GATE_FEATURES + [
+    "cheap_plan_final_progress",
+    "cheap_plan_state_change_fraction",
+    "cheap_plan_box_change_fraction",
+    "ensemble_plan_disagreement",
+]
 
 
 def load_levels(levels_folder: str | Path | None, limit: int | None) -> list[tuple[str, list[str]]]:
@@ -117,7 +123,7 @@ def plan_turns(plan: list[int]) -> int:
     return sum(1 for idx in range(1, len(plan)) if plan[idx] != plan[idx - 1])
 
 
-def add_plan_features(row: dict) -> None:
+def add_plan_features(row: dict, state: SokobanState, cheap_evaluator) -> None:
     plan = list(row.get("plan_c", []))
     plan_length = len(plan)
     row["cheap_plan_length"] = float(plan_length)
@@ -127,6 +133,20 @@ def add_plan_features(row: dict) -> None:
         float(row["cheap_score"]) / float(plan_length)
         if plan_length else 0.0
     )
+    current = state
+    state_changes = 0
+    box_changes = 0
+    for action in plan:
+        step = cheap_evaluator.step(current, int(action))
+        state_changes += int(not same_state(current, step.state))
+        box_changes += int(not bool((current.boxes == step.state.boxes).all()))
+        current = step.state
+        if step.done:
+            break
+    denominator = float(plan_length) if plan_length else 1.0
+    row["cheap_plan_final_progress"] = float(current.boxes_on_goals_fraction())
+    row["cheap_plan_state_change_fraction"] = float(state_changes) / denominator
+    row["cheap_plan_box_change_fraction"] = float(box_changes) / denominator
 
 
 def gate_features_for_set(gate_feature_set: str) -> list[str]:
@@ -134,7 +154,9 @@ def gate_features_for_set(gate_feature_set: str) -> list[str]:
         return BASE_GATE_FEATURES
     if gate_feature_set == "plan":
         return PLAN_GATE_FEATURES
-    raise ValueError("gate_feature_set must be 'base' or 'plan'")
+    if gate_feature_set == "trajectory":
+        return TRAJECTORY_GATE_FEATURES
+    raise ValueError("gate_feature_set must be 'base', 'plan', or 'trajectory'")
 
 
 def build_rows(
@@ -242,12 +264,13 @@ def build_rows(
             row["uniform_true_nodes"] = uniform_true_result.nodes_expanded
             uncertainty = ensemble_uncertainty(planning_state, uncertainty_planners)
             row["ensemble_action_disagreement"] = uncertainty["action_disagreement"]
+            row["ensemble_plan_disagreement"] = uncertainty["plan_disagreement"]
             row["ensemble_score_variance"] = uncertainty["score_variance"]
             row["ensemble_num_planners"] = uncertainty["num_planners"]
             row["ensemble_uncertainty"] = (
                 row["ensemble_action_disagreement"] + row["ensemble_score_variance"]
             )
-            add_plan_features(row)
+            add_plan_features(row, planning_state, cheap.evaluator)
             rows.append(row)
     return rows
 
@@ -458,7 +481,7 @@ def main() -> None:
     parser.add_argument("--state-sampler-width", type=int, default=8)
     parser.add_argument("--evaluator-mode", choices=["dense", "deadlock"], default="dense")
     parser.add_argument("--decision-unit", choices=["action", "plan"], default="action")
-    parser.add_argument("--gate-feature-set", choices=["base", "plan"], default="base")
+    parser.add_argument("--gate-feature-set", choices=["base", "plan", "trajectory"], default="base")
     parser.add_argument("--train-fraction", type=float, default=0.5)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--budgets", default=None)

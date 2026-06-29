@@ -14,6 +14,6 @@ def test_ensemble_uncertainty_reports_action_disagreement_and_score_variance():
     result = ensemble_uncertainty(state, planners)
 
     assert result["action_disagreement"] == 1.0
+    assert result["plan_disagreement"] == 1.0
     assert result["score_variance"] > 0.0
     assert result["num_planners"] == 2
-

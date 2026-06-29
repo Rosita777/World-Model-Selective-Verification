@@ -959,3 +959,95 @@ Future gate improvements should use richer plan-level evidence, such as:
 For now, the main reported controller should remain the base gate in the
 candidate-plan setting.
 ```
+
+## 2026-06-29 Update: Trajectory Feature Gate Ablation
+
+We tested a richer feature set that still uses only information available
+before verification:
+
+```text
+gate_feature_set = trajectory:
+    base features
+    simple plan descriptors
+    cheap_plan_final_progress
+    cheap_plan_state_change_fraction
+    cheap_plan_box_change_fraction
+    ensemble_plan_disagreement
+```
+
+The new features are intended to capture whether the cheap imagined plan
+actually changes the state, moves boxes, makes progress, and whether the
+cheap-model ensemble agrees on the full plan.
+
+Command:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 1000 \
+  --states-per-level 5 \
+  --state-sampler-depth 3 \
+  --state-sampler-width 8 \
+  --rates 0.50,0.75 \
+  --budgets 0.05,0.10,0.25,0.50 \
+  --cheap-depth 3 \
+  --cheap-width 8 \
+  --think-longer-depth 6 \
+  --think-longer-width 16 \
+  --uniform-true-depth 1 \
+  --uniform-true-width 4 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --evaluator-mode dense \
+  --decision-unit plan \
+  --gate-feature-set trajectory \
+  --out outputs/boxoban_kill_or_continue_v0/stage_b_trajectory_features_midstates_1000_u_d1w4.json
+```
+
+Result at `budget = 0.25`:
+
+| push error | gate features | decision-aware | uncertainty | uniform true 1-step | random | think-longer |
+|---:|---|---:|---:|---:|---:|---:|
+| 0.50 | base | 0.243 | 0.231 | 0.136 | 0.204 | 0.195 |
+| 0.50 | simple plan | 0.237 | 0.231 | 0.136 | 0.204 | 0.195 |
+| 0.50 | trajectory | 0.235 | 0.231 | 0.136 | 0.204 | 0.195 |
+| 0.75 | base | 0.211 | 0.191 | 0.136 | 0.170 | 0.120 |
+| 0.75 | simple plan | 0.209 | 0.191 | 0.136 | 0.170 | 0.120 |
+| 0.75 | trajectory | 0.204 | 0.191 | 0.136 | 0.170 | 0.120 |
+
+Paired bootstrap CI for `gate_feature_set = trajectory` at
+`budget = 0.25`:
+
+| push error | delta | mean | 95% CI |
+|---:|---|---:|---:|
+| 0.50 | decision - uniform true | 0.0988 | [0.0898, 0.1068] |
+| 0.50 | decision - random | 0.0305 | [0.0214, 0.0397] |
+| 0.50 | decision - uncertainty | 0.0042 | [-0.0053, 0.0135] |
+| 0.50 | decision - think-longer | 0.0401 | [0.0300, 0.0512] |
+| 0.75 | decision - uniform true | 0.0680 | [0.0578, 0.0772] |
+| 0.75 | decision - random | 0.0343 | [0.0228, 0.0452] |
+| 0.75 | decision - uncertainty | 0.0133 | [0.0033, 0.0239] |
+| 0.75 | decision - think-longer | 0.0841 | [0.0735, 0.0938] |
+
+Interpretation:
+
+```text
+Trajectory features remain positive against the main non-oracle
+baselines, but they do not improve over the base gate.
+
+This suggests the current centroid gate is not the right model for
+larger heterogeneous feature sets. Adding hand-crafted features without
+normalization or a more suitable classifier can hurt selection quality.
+
+The next gate-improvement step should be model-side rather than feature
+side:
+    1. standardize features before centroid distance; or
+    2. train a small logistic-regression / linear classifier gate;
+    3. compare these on the same saved candidate-plan rows.
+
+Until then, the base gate remains the main controller for the paper
+prototype.
+```
