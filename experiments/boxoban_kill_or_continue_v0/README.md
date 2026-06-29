@@ -501,3 +501,140 @@ The strongest current research question becomes:
 The current Boxoban Stage A setting does not yet answer this in favor of
 decision-aware selection.
 ```
+
+## 2026-06-29 Update: Low-Budget Uniform-True Diagnostic
+
+The runner now supports targeted sweeps:
+
+```text
+--rates:
+    run only selected degradation rates, e.g. 0.50 and 0.75
+
+--states-per-level:
+    optionally evaluate multiple planning states sampled from each level
+    instead of only the initial state
+```
+
+Initial-state low-budget diagnostic, 100 Boxoban levels:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 100 \
+  --rates 0.50,0.75 \
+  --budgets 0.01,0.02,0.05,0.10,0.25 \
+  --cheap-depth 1 \
+  --cheap-width 4 \
+  --think-longer-depth 3 \
+  --think-longer-width 16 \
+  --uniform-true-depth 1 \
+  --uniform-true-width 4 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --out outputs/boxoban_kill_or_continue_v0/stage_a_compute_curve_100_maincheap_u_d1w4.json
+```
+
+Initial-state result:
+
+| push error | policy | avg nodes | return |
+|---:|---|---:|---:|
+| 0.50 | cheap | 4.00 | 0.206 |
+| 0.50 | decision-aware, budget 0.25 | 70.24 | 0.232 |
+| 0.50 | uniform true, depth 1 width 4 | 4.00 | 0.246 |
+| 0.50 | always deep verifier | 280.00 | 0.246 |
+| 0.75 | cheap | 4.00 | 0.199 |
+| 0.75 | decision-aware, budget 0.25 | 70.24 | 0.232 |
+| 0.75 | uniform true, depth 1 width 4 | 4.00 | 0.246 |
+| 0.75 | always deep verifier | 280.00 | 0.246 |
+
+This is a stronger negative diagnostic than the depth-3 uniform baseline:
+
+```text
+On initial states, a one-step true-simulator beam already matches the
+deep verifier's return in this 100-level sample.
+
+The likely reason is that the current dense potential evaluation makes
+good first actions easy to identify with very shallow true search.
+```
+
+Action-agreement diagnostic:
+
+| setting | push error | P(uniform true action = deep verifier action) |
+|---|---:|---:|
+| initial states | 0.50 | 0.84 |
+| initial states | 0.75 | 0.84 |
+| sampled mid-states | 0.50 | 0.783 |
+| sampled mid-states | 0.75 | 0.783 |
+
+Mid-state diagnostic command:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 100 \
+  --states-per-level 5 \
+  --state-sampler-depth 3 \
+  --state-sampler-width 8 \
+  --rates 0.50,0.75 \
+  --budgets 0.01,0.02,0.05,0.10,0.25 \
+  --cheap-depth 1 \
+  --cheap-width 4 \
+  --think-longer-depth 3 \
+  --think-longer-width 16 \
+  --uniform-true-depth 1 \
+  --uniform-true-width 4 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --out outputs/boxoban_kill_or_continue_v0/stage_a_midstates_100_true_sampler_u_d1w4.json
+```
+
+Mid-state result:
+
+| push error | policy | avg nodes | return |
+|---:|---|---:|---:|
+| 0.50 | cheap | 4.00 | 0.253 |
+| 0.50 | uniform true, depth 1 width 4 | 4.00 | 0.279 |
+| 0.50 | decision-aware, budget 0.25 | 72.63 | 0.282 |
+| 0.50 | always deep verifier | 280.00 | 0.289 |
+| 0.75 | cheap | 4.00 | 0.242 |
+| 0.75 | uniform true, depth 1 width 4 | 4.00 | 0.279 |
+| 0.75 | decision-aware, budget 0.25 | 72.63 | 0.270 |
+| 0.75 | always deep verifier | 280.00 | 0.289 |
+
+Interpretation:
+
+```text
+Mid-states are less degenerate than initial states, but the same core
+problem remains: uniform one-step true search is very strong.
+
+At rate 0.50, decision-aware slightly exceeds uniform one-step true
+search, but only by using much more search. At rate 0.75, it still loses.
+
+This points to an experiment-design issue rather than a gate-architecture
+issue. Making the gate more complex now would not address the strongest
+baseline.
+```
+
+Current next move:
+
+```text
+Do not immediately upgrade the gate.
+
+First change the task/evaluation so that shallow true search is not
+already equivalent to deep verification. The two best candidates are:
+
+1. sparse success/deadlock-sensitive evaluation instead of dense
+   potential-only evaluation;
+2. candidate-plan verification or hard-state sampling, where the
+   verifier checks multi-step consequences rather than just selecting
+   a good immediate action.
+
+Only after this degeneracy is fixed should we spend effort on a stronger
+learned gate.
+```

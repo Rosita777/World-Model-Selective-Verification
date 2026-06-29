@@ -10,6 +10,7 @@ from wmsv.analysis.stage_a import evaluate_first_action, make_label_row
 from wmsv.analysis.uncertainty import ensemble_uncertainty
 from wmsv.data.boxoban import iter_boxoban_levels
 from wmsv.envs.sokoban import parse_level
+from wmsv.envs.sokoban import SokobanState
 from wmsv.gating.simple import fit_centroid_gate, mean_policy_return, selection_summary, top_fraction_mask
 from wmsv.planning.beam import BeamPlanner
 from wmsv.planning.evaluators import DegradedPushEvaluator, PotentialEvaluator, TrueEvaluator
@@ -42,6 +43,8 @@ TINY_LEVELS = [
     ],
 ]
 
+DEFAULT_RATES = [0.0, 0.25, 0.5, 0.75, 1.0]
+
 
 def load_levels(levels_folder: str | Path | None, limit: int | None) -> list[tuple[str, list[str]]]:
     if levels_folder is None:
@@ -50,6 +53,33 @@ def load_levels(levels_folder: str | Path | None, limit: int | None) -> list[tup
         (level.level_id, level.lines)
         for level in iter_boxoban_levels(levels_folder, limit=limit)
     ]
+
+
+def same_state(left: SokobanState, right: SokobanState) -> bool:
+    return bool((left.encode() == right.encode()).all())
+
+
+def sample_planning_states(
+    level_id: str,
+    initial_state: SokobanState,
+    sampler: BeamPlanner,
+    states_per_level: int,
+) -> list[tuple[str, str, int, SokobanState]]:
+    if states_per_level < 1:
+        raise ValueError("states_per_level must be at least 1")
+    states = []
+    current = initial_state
+    for state_index in range(states_per_level):
+        state_id = level_id if state_index == 0 else f"{level_id}:s{state_index}"
+        states.append((state_id, level_id, state_index, current))
+        result = sampler.plan(current)
+        step = sampler.evaluator.step(current, result.action)
+        if step.done:
+            break
+        if same_state(current, step.state):
+            break
+        current = step.state
+    return states
 
 
 def build_rows(
@@ -68,6 +98,9 @@ def build_rows(
     think_longer_width: int | None = None,
     uniform_true_depth: int | None = None,
     uniform_true_width: int | None = None,
+    states_per_level: int = 1,
+    state_sampler_depth: int = 3,
+    state_sampler_width: int = 8,
 ) -> list[dict]:
     think_longer_depth = think_longer_depth or cheap_depth * 2
     think_longer_width = think_longer_width or cheap_width * 2
@@ -95,6 +128,11 @@ def build_rows(
         depth=uniform_true_depth,
         width=uniform_true_width,
     )
+    state_sampler = BeamPlanner(
+        PotentialEvaluator(TrueEvaluator()),
+        depth=state_sampler_depth,
+        width=state_sampler_width,
+    )
     evaluator = BeamPlanner(PotentialEvaluator(TrueEvaluator()), depth=eval_depth, width=eval_width)
     uncertainty_planners = [
         BeamPlanner(
@@ -111,25 +149,33 @@ def build_rows(
     rows = []
     for level_id, level in load_levels(levels_folder, limit):
         state = parse_level(level)
-        row = make_label_row(level_id, state, cheap, verifier, evaluator)
-        think_longer_result = think_longer.plan(state)
-        row["a_t"] = think_longer_result.action
-        row["r_t"] = evaluate_first_action(state, think_longer_result.action, evaluator)
-        row["think_longer_score"] = think_longer_result.score
-        row["think_longer_nodes"] = think_longer_result.nodes_expanded
-        uniform_true_result = uniform_true.plan(state)
-        row["a_u"] = uniform_true_result.action
-        row["r_u"] = evaluate_first_action(state, uniform_true_result.action, evaluator)
-        row["uniform_true_score"] = uniform_true_result.score
-        row["uniform_true_nodes"] = uniform_true_result.nodes_expanded
-        uncertainty = ensemble_uncertainty(state, uncertainty_planners)
-        row["ensemble_action_disagreement"] = uncertainty["action_disagreement"]
-        row["ensemble_score_variance"] = uncertainty["score_variance"]
-        row["ensemble_num_planners"] = uncertainty["num_planners"]
-        row["ensemble_uncertainty"] = (
-            row["ensemble_action_disagreement"] + row["ensemble_score_variance"]
-        )
-        rows.append(row)
+        for state_id, base_level_id, state_index, planning_state in sample_planning_states(
+            level_id,
+            state,
+            state_sampler,
+            states_per_level,
+        ):
+            row = make_label_row(state_id, planning_state, cheap, verifier, evaluator)
+            row["base_level_id"] = base_level_id
+            row["state_index"] = state_index
+            think_longer_result = think_longer.plan(planning_state)
+            row["a_t"] = think_longer_result.action
+            row["r_t"] = evaluate_first_action(planning_state, think_longer_result.action, evaluator)
+            row["think_longer_score"] = think_longer_result.score
+            row["think_longer_nodes"] = think_longer_result.nodes_expanded
+            uniform_true_result = uniform_true.plan(planning_state)
+            row["a_u"] = uniform_true_result.action
+            row["r_u"] = evaluate_first_action(planning_state, uniform_true_result.action, evaluator)
+            row["uniform_true_score"] = uniform_true_result.score
+            row["uniform_true_nodes"] = uniform_true_result.nodes_expanded
+            uncertainty = ensemble_uncertainty(planning_state, uncertainty_planners)
+            row["ensemble_action_disagreement"] = uncertainty["action_disagreement"]
+            row["ensemble_score_variance"] = uncertainty["score_variance"]
+            row["ensemble_num_planners"] = uncertainty["num_planners"]
+            row["ensemble_uncertainty"] = (
+                row["ensemble_action_disagreement"] + row["ensemble_score_variance"]
+            )
+            rows.append(row)
     return rows
 
 
@@ -141,6 +187,11 @@ def parse_budget_list(value: str) -> list[float]:
         if not 0.0 <= budget <= 1.0:
             raise ValueError("budgets must be in [0, 1]")
     return budgets
+
+
+def parse_rate_list(value: str) -> list[float]:
+    rates = parse_budget_list(value)
+    return rates
 
 
 def split_rows(rows: list[dict], train_fraction: float) -> tuple[list[dict], list[dict]]:
@@ -342,14 +393,19 @@ def main() -> None:
     parser.add_argument("--think-longer-width", type=int, default=None)
     parser.add_argument("--uniform-true-depth", type=int, default=None)
     parser.add_argument("--uniform-true-width", type=int, default=None)
+    parser.add_argument("--states-per-level", type=int, default=1)
+    parser.add_argument("--state-sampler-depth", type=int, default=3)
+    parser.add_argument("--state-sampler-width", type=int, default=8)
     parser.add_argument("--train-fraction", type=float, default=0.5)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--budgets", default=None)
+    parser.add_argument("--rates", default=None)
     args = parser.parse_args()
     budgets = parse_budget_list(args.budgets) if args.budgets else [args.budget]
+    rates = parse_rate_list(args.rates) if args.rates else DEFAULT_RATES
 
     summary = []
-    for rate in [0.0, 0.25, 0.5, 0.75, 1.0]:
+    for rate in rates:
         rows = build_rows(
             rate,
             args.penalty,
@@ -366,6 +422,9 @@ def main() -> None:
             think_longer_width=args.think_longer_width,
             uniform_true_depth=args.uniform_true_depth,
             uniform_true_width=args.uniform_true_width,
+            states_per_level=args.states_per_level,
+            state_sampler_depth=args.state_sampler_depth,
+            state_sampler_width=args.state_sampler_width,
         )
         train_rows, eval_rows = split_rows(rows, args.train_fraction)
         counts = summarize_labels(rows, epsilon=0.01)

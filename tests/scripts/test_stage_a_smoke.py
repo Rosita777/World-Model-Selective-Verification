@@ -1,6 +1,7 @@
 from scripts.run_stage_a_smoke import (
     build_rows,
     evaluate_rankers,
+    parse_rate_list,
     parse_budget_list,
     policy_return_vectors,
     run_budget_sweep,
@@ -27,6 +28,26 @@ def test_build_rows_returns_label_rows_for_tiny_levels():
     assert rows[0]["ensemble_num_planners"] == 3
     assert rows[0]["think_longer_nodes"] > rows[0]["cheap_nodes"]
     assert rows[0]["uniform_true_nodes"] > rows[0]["cheap_nodes"]
+
+
+def test_build_rows_can_sample_multiple_planning_states_per_level():
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        cheap_depth=1,
+        cheap_width=2,
+        verifier_depth=2,
+        verifier_width=4,
+        eval_depth=2,
+        eval_width=4,
+        states_per_level=3,
+        state_sampler_depth=1,
+        state_sampler_width=4,
+    )
+
+    assert len(rows) > len({row["base_level_id"] for row in rows})
+    assert {"base_level_id", "state_index"}.issubset(rows[0])
+    assert any(":s1" in row["level_id"] for row in rows)
 
 
 def test_evaluate_rankers_reports_core_returns():
@@ -164,6 +185,10 @@ def test_evaluate_rankers_reports_random_and_oracle_budget_baselines():
 
 def test_parse_budget_list_accepts_comma_separated_fractions():
     assert parse_budget_list("0.05,0.10,0.25") == [0.05, 0.1, 0.25]
+
+
+def test_parse_rate_list_accepts_selected_error_rates():
+    assert parse_rate_list("0.50,0.75") == [0.5, 0.75]
 
 
 def test_run_budget_sweep_reports_one_result_per_budget():
