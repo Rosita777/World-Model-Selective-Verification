@@ -1291,3 +1291,80 @@ This supports the core decision-aware story: the gate learns to call the
 expensive verifier where verification is likely to change and improve
 the executed decision, not simply where the cheap model looks uncertain.
 ```
+
+## 2026-06-29 Update: Think-Longer Compute Matching
+
+We tested whether the result can be explained away by simply spending
+more compute inside the same cheap degraded planner.
+
+First, we ran a 200-level diagnostic sweep over several think-longer
+depth/width settings:
+
+| think-longer config | nodes | error 0.50 return | error 0.75 return |
+|---|---:|---:|---:|
+| depth 4, width 8 | 84 | 0.165 | 0.110 |
+| depth 5, width 8 | 116 | 0.174 | 0.113 |
+| depth 6, width 8 | 148 | 0.178 | 0.113 |
+| depth 5, width 16 | 212 | 0.187 | 0.124 |
+| depth 6, width 16 | 276 | 0.195 | 0.126 |
+
+On the same 200-level rows, decision-aware selective verification at
+budget 0.25 used about 121 nodes and achieved:
+
+| push error | decision-aware return | uncertainty return | matched think-longer return |
+|---:|---:|---:|---:|
+| 0.50 | 0.262 | 0.244 | 0.174 |
+| 0.75 | 0.215 | 0.202 | 0.113 |
+
+The most compute-matched think-longer setting is therefore:
+
+```text
+think_longer_depth = 5
+think_longer_width = 8
+think_longer_nodes = 116
+```
+
+We then ran that matched think-longer baseline on the full 1000-level
+candidate-plan setup.
+
+1000-level result:
+
+| push error | policy | nodes | return |
+|---:|---|---:|---:|
+| 0.50 | think-longer depth 5 width 8 | 116 | 0.170 |
+| 0.50 | decision-aware budget 0.20 | 107 | 0.235 |
+| 0.50 | decision-aware budget 0.25 | 121 | 0.248 |
+| 0.50 | decision-aware budget 0.30 | 135 | 0.261 |
+| 0.75 | think-longer depth 5 width 8 | 116 | 0.110 |
+| 0.75 | decision-aware budget 0.20 | 107 | 0.187 |
+| 0.75 | decision-aware budget 0.25 | 121 | 0.213 |
+| 0.75 | decision-aware budget 0.30 | 135 | 0.226 |
+
+Paired bootstrap CI for `decision - think-longer`:
+
+| push error | budget | mean | 95% CI |
+|---:|---:|---:|---:|
+| 0.50 | 0.20 | 0.0645 | [0.0553, 0.0744] |
+| 0.50 | 0.25 | 0.0780 | [0.0686, 0.0878] |
+| 0.50 | 0.30 | 0.0911 | [0.0820, 0.1013] |
+| 0.75 | 0.20 | 0.0766 | [0.0677, 0.0850] |
+| 0.75 | 0.25 | 0.1027 | [0.0925, 0.1128] |
+| 0.75 | 0.30 | 0.1162 | [0.1061, 0.1264] |
+
+Interpretation:
+
+```text
+Matched cheap-model think-longer does not explain the gain. At nearly
+the same compute as decision-aware budget 0.25, think-longer remains far
+behind.
+
+This supports the verification story: when the cheap dynamics/evaluator
+is degraded, spending more search inside that same cheap model is less
+effective than selectively calling a higher-fidelity verifier on a small
+number of decision-relevant states.
+
+The scope of this claim is important: it rules out naive depth/width
+scaling of the same cheap degraded planner as the explanation for the
+gain. It does not rule out that a differently trained or purpose-built
+single-model planner at matched compute could reduce the gap.
+```
