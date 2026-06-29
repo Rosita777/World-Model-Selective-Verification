@@ -1051,3 +1051,76 @@ side:
 Until then, the base gate remains the main controller for the paper
 prototype.
 ```
+
+## 2026-06-29 Update: Gate Model Ablation
+
+We added switchable gate models while keeping the same labels, rows, and
+candidate-plan decision unit:
+
+```text
+gate_model = centroid:
+    original raw feature-space centroid distance
+
+gate_model = standardized_centroid:
+    centroid distance after train-set feature standardization
+
+gate_model = logistic:
+    deterministic small logistic gate trained with balanced labels
+```
+
+This tests whether the earlier feature ablations were limited by the
+controller model rather than by the verification target.
+
+Result at `budget = 0.25`:
+
+| features | gate model | error 0.50 decision | error 0.75 decision |
+|---|---|---:|---:|
+| base | centroid | 0.243 | 0.211 |
+| base | standardized centroid | 0.248 | 0.213 |
+| base | logistic | 0.246 | 0.212 |
+| plan | centroid | 0.237 | 0.209 |
+| plan | standardized centroid | 0.243 | 0.212 |
+| plan | logistic | 0.246 | 0.213 |
+| trajectory | centroid | 0.235 | 0.204 |
+| trajectory | standardized centroid | 0.241 | 0.212 |
+| trajectory | logistic | 0.248 | 0.212 |
+
+For reference, the non-decision baselines at this budget are unchanged:
+
+| push error | uncertainty | random | think-longer | uniform true 1-step |
+|---:|---:|---:|---:|---:|
+| 0.50 | 0.231 | 0.204 | 0.195 | 0.136 |
+| 0.75 | 0.191 | 0.170 | 0.120 | 0.136 |
+
+Paired bootstrap CI for the best simple choice,
+`gate_feature_set = base`, `gate_model = standardized_centroid`:
+
+| push error | delta | mean | 95% CI |
+|---:|---|---:|---:|
+| 0.50 | decision - uncertainty | 0.0173 | [0.0091, 0.0258] |
+| 0.50 | decision - random | 0.0437 | [0.0342, 0.0538] |
+| 0.50 | decision - think-longer | 0.0533 | [0.0425, 0.0643] |
+| 0.50 | decision - uniform true | 0.1119 | [0.1031, 0.1214] |
+| 0.75 | decision - uncertainty | 0.0219 | [0.0122, 0.0314] |
+| 0.75 | decision - random | 0.0429 | [0.0312, 0.0533] |
+| 0.75 | decision - think-longer | 0.0927 | [0.0821, 0.1027] |
+| 0.75 | decision - uniform true | 0.0766 | [0.0670, 0.0854] |
+
+Interpretation:
+
+```text
+Standardizing the centroid gate is the cleanest current improvement.
+It improves over the original centroid without changing the story,
+labels, verifier, or environment.
+
+Logistic gates help recover some value from larger feature sets, but do
+not clearly dominate standardized centroid. For the paper prototype, the
+main controller should be:
+
+    decision_unit = plan
+    gate_feature_set = base
+    gate_model = standardized_centroid
+
+This is a useful result: the controller is still lightweight, but no
+longer obviously too naive due to raw feature scale.
+```

@@ -16,7 +16,7 @@ from wmsv.analysis.uncertainty import ensemble_uncertainty
 from wmsv.data.boxoban import iter_boxoban_levels
 from wmsv.envs.sokoban import parse_level
 from wmsv.envs.sokoban import SokobanState
-from wmsv.gating.simple import fit_centroid_gate, mean_policy_return, selection_summary, top_fraction_mask
+from wmsv.gating.simple import fit_gate, mean_policy_return, selection_summary, top_fraction_mask
 from wmsv.planning.beam import BeamPlanner
 from wmsv.planning.evaluators import (
     DeadlockAwareEvaluator,
@@ -73,6 +73,7 @@ TRAJECTORY_GATE_FEATURES = PLAN_GATE_FEATURES + [
     "cheap_plan_box_change_fraction",
     "ensemble_plan_disagreement",
 ]
+GATE_MODELS = ["centroid", "standardized_centroid", "logistic"]
 
 
 def load_levels(levels_folder: str | Path | None, limit: int | None) -> list[tuple[str, list[str]]]:
@@ -339,6 +340,7 @@ def policy_return_vectors(
     budget_fraction: float,
     random_seed: int = 0,
     gate_feature_set: str = "base",
+    gate_model: str = "centroid",
 ) -> dict[str, list[float]]:
     uncertainty_scores = [
         float(row.get("ensemble_uncertainty", row["uncertainty_proxy"]))
@@ -362,7 +364,7 @@ def policy_return_vectors(
         "oracle": masked_return_values(eval_rows, oracle_mask),
     }
     if any(row["label"] == 1 for row in train_rows) and any(row["label"] == 0 for row in train_rows):
-        gate = fit_centroid_gate(train_rows, gate_features_for_set(gate_feature_set))
+        gate = fit_gate(train_rows, gate_features_for_set(gate_feature_set), gate_model)
         decision_scores = [gate.score(row) for row in eval_rows]
         decision_mask = top_fraction_mask(decision_scores, budget_fraction)
         vectors["decision"] = masked_return_values(eval_rows, decision_mask)
@@ -375,6 +377,7 @@ def evaluate_rankers(
     budget_fraction: float,
     random_seed: int = 0,
     gate_feature_set: str = "base",
+    gate_model: str = "centroid",
 ) -> dict:
     cheap_return = mean_policy_return(eval_rows, [False] * len(eval_rows))
     always_return = mean_policy_return(eval_rows, [True] * len(eval_rows))
@@ -426,9 +429,10 @@ def evaluate_rankers(
         "oracle_nodes": mean_policy_nodes(eval_rows, oracle_mask),
         "decision_nodes": None,
         "gate_feature_set": gate_feature_set,
+        "gate_model": gate_model,
     }
     if any(row["label"] == 1 for row in train_rows) and any(row["label"] == 0 for row in train_rows):
-        gate = fit_centroid_gate(train_rows, gate_features_for_set(gate_feature_set))
+        gate = fit_gate(train_rows, gate_features_for_set(gate_feature_set), gate_model)
         decision_scores = [gate.score(row) for row in eval_rows]
         decision_mask = top_fraction_mask(decision_scores, budget_fraction)
         result["decision_return"] = mean_policy_return(eval_rows, decision_mask)
@@ -443,6 +447,7 @@ def run_budget_sweep(
     budgets: list[float],
     random_seed: int = 0,
     gate_feature_set: str = "base",
+    gate_model: str = "centroid",
 ) -> list[dict]:
     sweep = []
     for budget in budgets:
@@ -452,6 +457,7 @@ def run_budget_sweep(
             budget,
             random_seed=random_seed,
             gate_feature_set=gate_feature_set,
+            gate_model=gate_model,
         )
         result["budget_fraction"] = budget
         sweep.append(result)
@@ -482,6 +488,7 @@ def main() -> None:
     parser.add_argument("--evaluator-mode", choices=["dense", "deadlock"], default="dense")
     parser.add_argument("--decision-unit", choices=["action", "plan"], default="action")
     parser.add_argument("--gate-feature-set", choices=["base", "plan", "trajectory"], default="base")
+    parser.add_argument("--gate-model", choices=GATE_MODELS, default="centroid")
     parser.add_argument("--train-fraction", type=float, default=0.5)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--budgets", default=None)
@@ -535,6 +542,7 @@ def main() -> None:
                     args.budget,
                     random_seed=args.random_seed,
                     gate_feature_set=args.gate_feature_set,
+                    gate_model=args.gate_model,
                 ),
                 "budget_sweep": run_budget_sweep(
                     train_rows,
@@ -542,6 +550,7 @@ def main() -> None:
                     budgets,
                     random_seed=args.random_seed,
                     gate_feature_set=args.gate_feature_set,
+                    gate_model=args.gate_model,
                 ),
                 "rows": rows,
             }

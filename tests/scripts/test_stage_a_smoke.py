@@ -10,6 +10,28 @@ from scripts.run_stage_a_smoke import (
 )
 
 
+def _gate_row(label: int, r_c: float, r_v: float, score_margin: float, ensemble_uncertainty: float) -> dict:
+    return {
+        "a_c": 0,
+        "a_v": 1 if label else 0,
+        "r_c": r_c,
+        "r_v": r_v,
+        "r_t": r_c,
+        "r_u": r_c,
+        "label": label,
+        "score_margin": score_margin,
+        "uncertainty_proxy": ensemble_uncertainty,
+        "cheap_score": 0.0,
+        "ensemble_action_disagreement": ensemble_uncertainty,
+        "ensemble_score_variance": 0.0,
+        "ensemble_uncertainty": ensemble_uncertainty,
+        "cheap_nodes": 10,
+        "verifier_nodes": 100,
+        "think_longer_nodes": 30,
+        "uniform_true_nodes": 35,
+    }
+
+
 def test_build_rows_returns_label_rows_for_tiny_levels():
     rows = build_rows(
         push_error_rate=1.0,
@@ -180,6 +202,45 @@ def test_evaluate_rankers_accepts_trajectory_gate_feature_set():
     assert isinstance(result["decision_return"], float)
 
 
+def test_evaluate_rankers_accepts_standardized_centroid_gate_model():
+    rows = [
+        _gate_row(1, 0.0, 1.0, 0.1, 1.0),
+        _gate_row(0, 0.5, 0.5, 1.0, 0.0),
+        _gate_row(1, 0.0, 1.0, 0.2, 1.0),
+        _gate_row(0, 0.5, 0.5, 1.1, 0.0),
+    ]
+
+    result = evaluate_rankers(
+        rows,
+        rows,
+        budget_fraction=0.5,
+        gate_model="standardized_centroid",
+    )
+
+    assert result["gate_model"] == "standardized_centroid"
+    assert isinstance(result["decision_return"], float)
+
+
+def test_policy_return_vectors_accept_logistic_gate_model():
+    rows = [
+        _gate_row(1, 0.0, 1.0, 0.1, 1.0),
+        _gate_row(0, 0.5, 0.5, 1.0, 0.0),
+        _gate_row(1, 0.0, 1.0, 0.2, 1.0),
+        _gate_row(0, 0.5, 0.5, 1.1, 0.0),
+    ]
+    train_rows, eval_rows = split_rows(rows, train_fraction=0.5)
+
+    vectors = policy_return_vectors(
+        train_rows,
+        eval_rows,
+        budget_fraction=0.5,
+        gate_model="logistic",
+    )
+
+    assert "decision" in vectors
+    assert len(vectors["decision"]) == len(eval_rows)
+
+
 def test_evaluate_rankers_reports_core_returns():
     rows = build_rows(push_error_rate=1.0, corrupt_push_penalty=1.0)
 
@@ -212,6 +273,7 @@ def test_evaluate_rankers_reports_core_returns():
     assert isinstance(result["always_return"], float)
     assert isinstance(result["think_longer_return"], float)
     assert isinstance(result["uniform_true_return"], float)
+    assert result["gate_model"] == "centroid"
     assert result["eval_rows"] == len(rows)
     assert "helpful_precision" in result["uncertainty_selection"]
     assert result["always_nodes"] > result["cheap_nodes"]

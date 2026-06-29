@@ -1,6 +1,8 @@
 from wmsv.gating.simple import (
     CentroidGate,
     fit_centroid_gate,
+    fit_logistic_gate,
+    fit_standardized_centroid_gate,
     mean_policy_return,
     selection_summary,
     top_fraction_mask,
@@ -20,6 +22,30 @@ def test_centroid_gate_scores_positive_like_rows_higher():
 
     positive_score = gate.score({"score_margin": 0.15})
     negative_score = gate.score({"score_margin": 1.15})
+
+    assert positive_score > negative_score
+
+
+def test_standardized_centroid_gate_scores_positive_like_rows_higher_when_scales_differ():
+    rows = [
+        {"small_signal": 0.1, "large_noise": 1000.0, "label": 1},
+        {"small_signal": 0.2, "large_noise": 2000.0, "label": 1},
+        {"small_signal": 1.1, "large_noise": 1100.0, "label": 0},
+        {"small_signal": 1.2, "large_noise": 2100.0, "label": 0},
+    ]
+    gate = fit_standardized_centroid_gate(rows, feature_names=["small_signal", "large_noise"])
+
+    positive_score = gate.score({"small_signal": 0.15, "large_noise": 1500.0})
+    negative_score = gate.score({"small_signal": 1.15, "large_noise": 1500.0})
+
+    assert positive_score > negative_score
+
+
+def test_logistic_gate_scores_positive_like_rows_higher():
+    gate = fit_logistic_gate(ROWS, feature_names=["score_margin", "uncertainty_proxy"])
+
+    positive_score = gate.score({"score_margin": 0.15, "uncertainty_proxy": 0.15})
+    negative_score = gate.score({"score_margin": 1.15, "uncertainty_proxy": 0.85})
 
     assert positive_score > negative_score
 
@@ -59,6 +85,15 @@ def test_selection_summary_counts_selected_verification_outcomes():
 def test_centroid_gate_requires_positive_and_negative_examples():
     try:
         fit_centroid_gate([{"score_margin": 0.1, "label": 1}], feature_names=["score_margin"])
+    except ValueError as exc:
+        assert "positive and negative" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_logistic_gate_requires_positive_and_negative_examples():
+    try:
+        fit_logistic_gate([{"score_margin": 0.1, "label": 1}], feature_names=["score_margin"])
     except ValueError as exc:
         assert "positive and negative" in str(exc)
     else:

@@ -66,3 +66,27 @@ def test_summarize_ci_for_item_accepts_plan_gate_feature_set():
 
     assert summary["gate_feature_set"] == "plan"
     assert "decision" in summary["policy_ci"]
+
+
+def test_summarize_ci_for_item_accepts_logistic_gate_model():
+    item = {
+        "push_error_rate": 0.75,
+        "budget_sweep": [{"train_rows": 2, "budget_fraction": 0.5}],
+        "rows": [
+            _row(1, 0.0, 1.0, 0.5, 0.75, 0.1, 1.0),
+            _row(0, 0.5, 0.5, 0.5, 0.50, 1.0, 0.0),
+            _row(1, 0.0, 1.0, 0.5, 0.75, 0.2, 1.0),
+            _row(0, 0.5, 0.5, 0.5, 0.50, 1.1, 0.0),
+        ],
+    }
+
+    summary = summarize_ci_for_item(
+        item,
+        budget_fraction=0.5,
+        samples=20,
+        seed=0,
+        gate_model="logistic",
+    )
+
+    assert summary["gate_model"] == "logistic"
+    assert "decision" in summary["policy_ci"]

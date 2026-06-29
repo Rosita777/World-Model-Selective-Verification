@@ -24,6 +24,7 @@ def summarize_ci_for_item(
     seed: int = 0,
     random_seed: int = 0,
     gate_feature_set: str = "base",
+    gate_model: str = "centroid",
 ) -> dict:
     train_rows, eval_rows = split_item_rows(item)
     vectors = policy_return_vectors(
@@ -32,6 +33,7 @@ def summarize_ci_for_item(
         budget_fraction=budget_fraction,
         random_seed=random_seed,
         gate_feature_set=gate_feature_set,
+        gate_model=gate_model,
     )
     policy_ci = {
         name: bootstrap_mean_ci(values, samples=samples, seed=seed)
@@ -50,6 +52,7 @@ def summarize_ci_for_item(
         "push_error_rate": item["push_error_rate"],
         "budget_fraction": budget_fraction,
         "gate_feature_set": gate_feature_set,
+        "gate_model": gate_model,
         "eval_rows": len(eval_rows),
         "policy_ci": policy_ci,
         "delta_ci": delta_ci,
@@ -64,6 +67,7 @@ def summarize_file(
     seed: int = 0,
     random_seed: int = 0,
     gate_feature_set: str = "base",
+    gate_model: str = "centroid",
 ) -> list[dict]:
     data = json.loads(Path(path).read_text())
     summaries = []
@@ -79,6 +83,7 @@ def summarize_file(
                     seed=seed,
                     random_seed=random_seed,
                     gate_feature_set=gate_feature_set,
+                    gate_model=gate_model,
                 )
             )
     return summaries
@@ -93,6 +98,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--gate-feature-set", choices=["base", "plan", "trajectory"], default="base")
+    parser.add_argument("--gate-model", choices=["centroid", "standardized_centroid", "logistic"], default="centroid")
     args = parser.parse_args()
 
     rates = parse_budget_list(args.rates) if args.rates else None
@@ -104,6 +110,7 @@ def main() -> None:
         seed=args.seed,
         random_seed=args.random_seed,
         gate_feature_set=args.gate_feature_set,
+        gate_model=args.gate_model,
     )
     print(json.dumps(summaries, indent=2))
 
