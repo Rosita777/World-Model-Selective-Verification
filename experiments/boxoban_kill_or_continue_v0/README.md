@@ -1205,3 +1205,89 @@ matters, but not so limited that almost no corrections are possible. The
 benefit is not monotonic in budget; it has a crossover with uncertainty
 gating once verification becomes abundant.
 ```
+
+## 2026-06-29 Update: Group-Split Robustness
+
+The previous sweep used the saved row order for the train/eval split. We
+therefore ran a stricter robustness check: split by `base_level_id`, so
+mid-states from the same Boxoban level do not appear in both train and
+eval. We used 20 random group splits and kept the same controller:
+
+```text
+decision_unit = plan
+gate_feature_set = base
+gate_model = standardized_centroid
+split_method = base_level_id_group_shuffle
+num_splits = 20
+```
+
+Result across 20 group splits:
+
+| push error | budget | decision mean | decision std | decision - uncertainty | win splits |
+|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.20 | 0.243 | 0.005 | 0.0156 +/- 0.0027 | 20/20 |
+| 0.50 | 0.25 | 0.257 | 0.005 | 0.0183 +/- 0.0023 | 20/20 |
+| 0.50 | 0.30 | 0.270 | 0.005 | 0.0190 +/- 0.0021 | 20/20 |
+| 0.50 | 0.40 | 0.297 | 0.004 | 0.0164 +/- 0.0022 | 20/20 |
+| 0.50 | 0.50 | 0.311 | 0.006 | 0.0033 +/- 0.0043 | 15/20 |
+| 0.75 | 0.20 | 0.193 | 0.005 | 0.0151 +/- 0.0037 | 20/20 |
+| 0.75 | 0.25 | 0.219 | 0.005 | 0.0224 +/- 0.0040 | 20/20 |
+| 0.75 | 0.30 | 0.236 | 0.004 | 0.0198 +/- 0.0022 | 20/20 |
+| 0.75 | 0.40 | 0.265 | 0.004 | 0.0105 +/- 0.0034 | 20/20 |
+| 0.75 | 0.50 | 0.282 | 0.004 | -0.0069 +/- 0.0035 | 0/20 |
+
+Interpretation:
+
+```text
+The main 0.20-0.30 signal is robust to level-grouped train/eval splits.
+Decision-aware gating beats uncertainty in all 20 splits for both error
+rates at these budgets.
+
+The high-budget crossover also remains: at budget 0.50 and error 0.75,
+uncertainty wins in all 20 splits.
+```
+
+## 2026-06-29 Update: Selection Diagnostics
+
+We also checked what the gate selects. The current candidate-plan setup
+evaluates full plans, but the training label is intentionally
+decision-change aware:
+
+```text
+label = 1 if first executable action changes
+          and verifier full-plan return > cheap full-plan return + epsilon
+```
+
+A pure `plan_v != plan_c` label is too broad in this setup because the
+cheap and verifier plans differ on nearly every row. The current label is
+therefore closer to the online planning decision: will verification
+change the action we actually execute, and will that change improve the
+full candidate-plan outcome?
+
+This label assumes single-step execution with re-planning after each
+environment step. If a future variant commits to the first `k` actions of
+an open-loop plan, the decision-change condition should widen from first
+action changed to first `k` actions changed.
+
+At `budget = 0.25`, averaged over the same 20 group splits:
+
+| push error | policy | action helpful precision | action recall | harmful rate | plan helpful precision | mean selected gain |
+|---:|---|---:|---:|---:|---:|---:|
+| 0.50 | decision-aware | 0.884 | 0.701 | 0.001 | 0.949 | 0.405 |
+| 0.50 | uncertainty | 0.508 | 0.403 | 0.002 | 0.810 | 0.331 |
+| 0.50 | random | 0.316 | 0.251 | 0.002 | 0.577 | 0.218 |
+| 0.75 | decision-aware | 0.989 | 0.543 | 0.000 | 0.998 | 0.448 |
+| 0.75 | uncertainty | 0.581 | 0.319 | 0.002 | 0.845 | 0.359 |
+| 0.75 | random | 0.454 | 0.250 | 0.001 | 0.650 | 0.266 |
+
+Interpretation:
+
+```text
+The standardized gate is not merely spending the same budget randomly.
+It selects many more helpful verification cases than uncertainty or
+random selection, with near-zero harmful flip rate.
+
+This supports the core decision-aware story: the gate learns to call the
+expensive verifier where verification is likely to change and improve
+the executed decision, not simply where the cheap model looks uncertain.
+```
