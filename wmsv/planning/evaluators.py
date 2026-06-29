@@ -24,6 +24,52 @@ class TrueEvaluator:
         return 0.0
 
 
+def is_blocked_for_deadlock(state: SokobanState, y: int, x: int) -> bool:
+    if y < 0 or y >= state.height or x < 0 or x >= state.width:
+        return True
+    return bool(state.walls[y, x])
+
+
+def has_corner_deadlock(state: SokobanState) -> bool:
+    boxes = np.argwhere(state.boxes)
+    for box in boxes:
+        y, x = map(int, box)
+        if state.goals[y, x]:
+            continue
+        vertical_blocked = (
+            is_blocked_for_deadlock(state, y - 1, x)
+            or is_blocked_for_deadlock(state, y + 1, x)
+        )
+        horizontal_blocked = (
+            is_blocked_for_deadlock(state, y, x - 1)
+            or is_blocked_for_deadlock(state, y, x + 1)
+        )
+        if vertical_blocked and horizontal_blocked:
+            return True
+    return False
+
+
+class DeadlockAwareEvaluator:
+    """Adds a penalty for obvious irreversible Sokoban corner deadlocks."""
+
+    def __init__(self, base_evaluator, deadlock_penalty: float = 1.0):
+        self.base_evaluator = base_evaluator
+        self.deadlock_penalty = float(deadlock_penalty)
+
+    def step(self, state: SokobanState, action: int) -> EvaluatedStep:
+        step = self.base_evaluator.step(state, action)
+        if step.done:
+            return step
+        if has_corner_deadlock(step.state):
+            return EvaluatedStep(step.state, step.reward - self.deadlock_penalty, False)
+        return step
+
+    def uncertainty(self, state: SokobanState, action: int) -> float:
+        if hasattr(self.base_evaluator, "uncertainty"):
+            return float(self.base_evaluator.uncertainty(state, action))
+        return 0.0
+
+
 class DegradedPushEvaluator:
     """Evaluator that deterministically hides some legal push outcomes.
 

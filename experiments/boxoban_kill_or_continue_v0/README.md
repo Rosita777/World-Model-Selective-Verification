@@ -638,3 +638,228 @@ already equivalent to deep verification. The two best candidates are:
 Only after this degeneracy is fixed should we spend effort on a stronger
 learned gate.
 ```
+
+## 2026-06-29 Update: Boxoban-B Candidate-Plan Diagnostic
+
+We tested two fixes for the uniform true-simulator degeneracy.
+
+First, we added a simple deadlock-aware evaluator:
+
+```text
+evaluator_mode = deadlock
+    terminal success reward
+    penalty for boxes pushed into non-goal static corners
+    no dense potential shaping
+```
+
+This did not fix the problem. On 100 levels with sampled mid-states:
+
+| push error | helpful rate | uniform true action = deep verifier action | cheap | uniform true 1-step | decision-aware 0.25 | always verifier |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.023 | 1.000 | 0.007 | 0.016 | 0.014 | 0.016 |
+| 0.75 | 0.023 | 1.000 | 0.007 | 0.016 | 0.012 | 0.016 |
+
+Interpretation:
+
+```text
+Simple corner-deadlock penalties make the task too sparse and still do
+not create useful separation between shallow true search and deep true
+verification.
+```
+
+The stronger fix is to change the decision unit from first action to
+candidate plan:
+
+```text
+decision_unit = action:
+    compare policies by first action, then use a deep evaluator after
+    that first action
+
+decision_unit = plan:
+    each planner submits a full candidate plan
+    the policy return is the true rollout of that fixed plan
+```
+
+This better matches the project story: the cheap world model imagines a
+future plan, and verification checks whether that imagined future is
+worth trusting.
+
+Command:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 500 \
+  --states-per-level 5 \
+  --state-sampler-depth 3 \
+  --state-sampler-width 8 \
+  --rates 0.50,0.75 \
+  --budgets 0.05,0.10,0.25,0.50 \
+  --cheap-depth 3 \
+  --cheap-width 8 \
+  --think-longer-depth 6 \
+  --think-longer-width 16 \
+  --uniform-true-depth 1 \
+  --uniform-true-width 4 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --evaluator-mode dense \
+  --decision-unit plan \
+  --out outputs/boxoban_kill_or_continue_v0/stage_b_plan_dense_midstates_500_u_d1w4.json
+```
+
+500-level candidate-plan result:
+
+| push error | helpful rate | cheap | uniform true 1-step | think-longer | uncertainty | decision-aware 0.25 | always verifier |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.331 | 0.154 | 0.144 | 0.187 | 0.241 | 0.247 | 0.373 |
+| 0.75 | 0.471 | 0.102 | 0.144 | 0.112 | 0.195 | 0.214 | 0.373 |
+
+Budget sweep:
+
+| push error | budget | decision-aware | uniform true 1-step | random | uncertainty | think-longer | oracle |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.05 | 0.170 | 0.144 | 0.163 | 0.173 | 0.187 | 0.195 |
+| 0.50 | 0.10 | 0.192 | 0.144 | 0.176 | 0.192 | 0.187 | 0.227 |
+| 0.50 | 0.25 | 0.247 | 0.144 | 0.208 | 0.241 | 0.187 | 0.296 |
+| 0.50 | 0.50 | 0.313 | 0.144 | 0.262 | 0.306 | 0.187 | 0.367 |
+| 0.75 | 0.05 | 0.120 | 0.144 | 0.113 | 0.123 | 0.112 | 0.144 |
+| 0.75 | 0.10 | 0.144 | 0.144 | 0.128 | 0.143 | 0.112 | 0.179 |
+| 0.75 | 0.25 | 0.214 | 0.144 | 0.170 | 0.195 | 0.112 | 0.257 |
+| 0.75 | 0.50 | 0.288 | 0.144 | 0.235 | 0.287 | 0.112 | 0.351 |
+
+Paired bootstrap CI at `budget = 0.25`:
+
+| push error | delta | mean | 95% CI |
+|---:|---|---:|---:|
+| 0.50 | decision - uniform true | 0.1025 | [0.0896, 0.1156] |
+| 0.50 | decision - random | 0.0387 | [0.0229, 0.0539] |
+| 0.50 | decision - uncertainty | 0.0056 | [-0.0040, 0.0162] |
+| 0.50 | decision - think-longer | 0.0594 | [0.0453, 0.0736] |
+| 0.75 | decision - uniform true | 0.0695 | [0.0562, 0.0828] |
+| 0.75 | decision - random | 0.0441 | [0.0281, 0.0611] |
+| 0.75 | decision - uncertainty | 0.0191 | [0.0045, 0.0342] |
+| 0.75 | decision - think-longer | 0.1018 | [0.0875, 0.1175] |
+
+Interpretation:
+
+```text
+Candidate-plan evaluation fixes the main degeneracy.
+
+The one-step true baseline is no longer close to the deep verifier,
+because a one-step plan is not allowed to receive free deep evaluation
+after its first action.
+
+At budget = 0.25, decision-aware selection beats uniform true 1-step,
+random, and cheap-model think-longer with positive paired CI in both
+main regimes. It also beats uncertainty significantly at push_error_rate
+= 0.75, while the 0.50 uncertainty margin is positive but not yet
+statistically decisive.
+```
+
+Current judgment:
+
+```text
+This is the better Stage B direction.
+
+The paper should shift the main Boxoban experiment from action-level
+first-step verification to candidate-plan verification. This is also a
+cleaner match to the phrase "verifying imagined futures".
+
+The 500-level result is promising, but should be checked at 1000 levels
+before changing the main experiment.
+```
+
+## 2026-06-29 Update: 1000-Level Candidate-Plan Check
+
+The 1000-level candidate-plan check used the same configuration as the
+500-level run, with `--limit 1000`.
+
+Command:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 1000 \
+  --states-per-level 5 \
+  --state-sampler-depth 3 \
+  --state-sampler-width 8 \
+  --rates 0.50,0.75 \
+  --budgets 0.05,0.10,0.25,0.50 \
+  --cheap-depth 3 \
+  --cheap-width 8 \
+  --think-longer-depth 6 \
+  --think-longer-width 16 \
+  --uniform-true-depth 1 \
+  --uniform-true-width 4 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --evaluator-mode dense \
+  --decision-unit plan \
+  --out outputs/boxoban_kill_or_continue_v0/stage_b_plan_dense_midstates_1000_u_d1w4.json
+```
+
+1000-level candidate-plan result:
+
+| push error | helpful rate | cheap | uniform true 1-step | think-longer | uncertainty | decision-aware 0.25 | always verifier |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.322 | 0.151 | 0.136 | 0.195 | 0.231 | 0.243 | 0.362 |
+| 0.75 | 0.459 | 0.103 | 0.136 | 0.120 | 0.191 | 0.211 | 0.362 |
+
+Budget sweep:
+
+| push error | budget | decision-aware | uniform true 1-step | random | uncertainty | think-longer | oracle |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.05 | 0.169 | 0.136 | 0.162 | 0.168 | 0.195 | 0.190 |
+| 0.50 | 0.10 | 0.188 | 0.136 | 0.171 | 0.187 | 0.195 | 0.218 |
+| 0.50 | 0.25 | 0.243 | 0.136 | 0.204 | 0.231 | 0.195 | 0.282 |
+| 0.50 | 0.50 | 0.301 | 0.136 | 0.257 | 0.300 | 0.195 | 0.354 |
+| 0.75 | 0.05 | 0.126 | 0.136 | 0.116 | 0.124 | 0.120 | 0.144 |
+| 0.75 | 0.10 | 0.146 | 0.136 | 0.129 | 0.143 | 0.120 | 0.177 |
+| 0.75 | 0.25 | 0.211 | 0.136 | 0.170 | 0.191 | 0.120 | 0.251 |
+| 0.75 | 0.50 | 0.274 | 0.136 | 0.234 | 0.281 | 0.120 | 0.341 |
+
+Paired bootstrap CI at `budget = 0.25`:
+
+| push error | delta | mean | 95% CI |
+|---:|---|---:|---:|
+| 0.50 | decision - uniform true | 0.1065 | [0.0977, 0.1153] |
+| 0.50 | decision - random | 0.0382 | [0.0287, 0.0474] |
+| 0.50 | decision - uncertainty | 0.0119 | [0.0041, 0.0204] |
+| 0.50 | decision - think-longer | 0.0479 | [0.0379, 0.0581] |
+| 0.75 | decision - uniform true | 0.0751 | [0.0659, 0.0838] |
+| 0.75 | decision - random | 0.0414 | [0.0297, 0.0517] |
+| 0.75 | decision - uncertainty | 0.0204 | [0.0111, 0.0300] |
+| 0.75 | decision - think-longer | 0.0912 | [0.0805, 0.1011] |
+
+Interpretation:
+
+```text
+The candidate-plan result holds at 1000 levels.
+
+At budget = 0.25, decision-aware selection beats uniform true 1-step,
+random, uncertainty, and cheap-model think-longer with positive paired
+bootstrap CIs in both main regimes.
+
+This is now the strongest current Boxoban result and should replace the
+action-level setting as the main Stage B experiment.
+```
+
+Updated next work:
+
+```text
+1. add plan-specific gate features, such as plan length, number of
+   pushes, cheap plan score trajectory, and cheap-vs-ensemble plan
+   disagreement;
+2. compare additional uniform true baselines with longer plan depths
+   under matched compute;
+3. make plots for compute-return Pareto curves;
+4. keep the failed action-level result as internal ablation evidence
+   explaining why candidate-plan verification is the right formulation.
+```

@@ -1,6 +1,12 @@
 from wmsv.envs.sokoban import Action, parse_level
 from wmsv.planning.beam import BeamPlanner
-from wmsv.planning.evaluators import DegradedPushEvaluator, PotentialEvaluator, TrueEvaluator
+from wmsv.planning.evaluators import (
+    DeadlockAwareEvaluator,
+    DegradedPushEvaluator,
+    PotentialEvaluator,
+    TrueEvaluator,
+    has_corner_deadlock,
+)
 
 
 def test_true_evaluator_scores_one_step_solution_highest():
@@ -45,3 +51,25 @@ def test_potential_evaluator_rewards_moving_box_closer_to_goal():
     step = evaluator.step(state, int(Action.RIGHT))
 
     assert step.reward > 0.0
+
+
+def test_corner_deadlock_detects_box_stuck_off_goal():
+    state = parse_level(["#####", "#@  #", "#  $#", "# .##", "#####"])
+
+    assert has_corner_deadlock(state) is True
+
+
+def test_corner_deadlock_ignores_box_on_goal():
+    state = parse_level(["#####", "#@  #", "#  *#", "#   #", "#####"])
+
+    assert has_corner_deadlock(state) is False
+
+
+def test_deadlock_aware_evaluator_penalizes_corner_push():
+    state = parse_level(["#####", "#   #", "#@$ #", "# .##", "#####"])
+    evaluator = DeadlockAwareEvaluator(TrueEvaluator(), deadlock_penalty=1.0)
+
+    step = evaluator.step(state, int(Action.RIGHT))
+
+    assert step.reward == -1.0
+    assert step.done is False

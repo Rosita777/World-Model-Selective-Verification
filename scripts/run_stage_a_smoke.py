@@ -6,14 +6,24 @@ import random
 from pathlib import Path
 
 from wmsv.analysis.feasibility import summarize_labels
-from wmsv.analysis.stage_a import evaluate_first_action, make_label_row
+from wmsv.analysis.stage_a import (
+    evaluate_first_action,
+    evaluate_plan_rollout,
+    make_label_row,
+    make_plan_label_row,
+)
 from wmsv.analysis.uncertainty import ensemble_uncertainty
 from wmsv.data.boxoban import iter_boxoban_levels
 from wmsv.envs.sokoban import parse_level
 from wmsv.envs.sokoban import SokobanState
 from wmsv.gating.simple import fit_centroid_gate, mean_policy_return, selection_summary, top_fraction_mask
 from wmsv.planning.beam import BeamPlanner
-from wmsv.planning.evaluators import DegradedPushEvaluator, PotentialEvaluator, TrueEvaluator
+from wmsv.planning.evaluators import (
+    DeadlockAwareEvaluator,
+    DegradedPushEvaluator,
+    PotentialEvaluator,
+    TrueEvaluator,
+)
 
 
 TINY_LEVELS = [
@@ -82,6 +92,14 @@ def sample_planning_states(
     return states
 
 
+def make_evaluator(base_evaluator, evaluator_mode: str):
+    if evaluator_mode == "dense":
+        return PotentialEvaluator(base_evaluator)
+    if evaluator_mode == "deadlock":
+        return DeadlockAwareEvaluator(base_evaluator)
+    raise ValueError("evaluator_mode must be 'dense' or 'deadlock'")
+
+
 def build_rows(
     push_error_rate: float,
     corrupt_push_penalty: float,
@@ -101,46 +119,50 @@ def build_rows(
     states_per_level: int = 1,
     state_sampler_depth: int = 3,
     state_sampler_width: int = 8,
+    evaluator_mode: str = "dense",
+    decision_unit: str = "action",
 ) -> list[dict]:
+    if decision_unit not in {"action", "plan"}:
+        raise ValueError("decision_unit must be 'action' or 'plan'")
     think_longer_depth = think_longer_depth or cheap_depth * 2
     think_longer_width = think_longer_width or cheap_width * 2
     uniform_true_depth = uniform_true_depth or think_longer_depth
     uniform_true_width = uniform_true_width or think_longer_width
     cheap = BeamPlanner(
-        PotentialEvaluator(DegradedPushEvaluator(
+        make_evaluator(DegradedPushEvaluator(
             push_error_rate=push_error_rate,
             corrupt_push_penalty=corrupt_push_penalty,
-        )),
+        ), evaluator_mode),
         depth=cheap_depth,
         width=cheap_width,
     )
     think_longer = BeamPlanner(
-        PotentialEvaluator(DegradedPushEvaluator(
+        make_evaluator(DegradedPushEvaluator(
             push_error_rate=push_error_rate,
             corrupt_push_penalty=corrupt_push_penalty,
-        )),
+        ), evaluator_mode),
         depth=think_longer_depth,
         width=think_longer_width,
     )
-    verifier = BeamPlanner(PotentialEvaluator(TrueEvaluator()), depth=verifier_depth, width=verifier_width)
+    verifier = BeamPlanner(make_evaluator(TrueEvaluator(), evaluator_mode), depth=verifier_depth, width=verifier_width)
     uniform_true = BeamPlanner(
-        PotentialEvaluator(TrueEvaluator()),
+        make_evaluator(TrueEvaluator(), evaluator_mode),
         depth=uniform_true_depth,
         width=uniform_true_width,
     )
     state_sampler = BeamPlanner(
-        PotentialEvaluator(TrueEvaluator()),
+        make_evaluator(TrueEvaluator(), evaluator_mode),
         depth=state_sampler_depth,
         width=state_sampler_width,
     )
-    evaluator = BeamPlanner(PotentialEvaluator(TrueEvaluator()), depth=eval_depth, width=eval_width)
+    evaluator = BeamPlanner(make_evaluator(TrueEvaluator(), evaluator_mode), depth=eval_depth, width=eval_width)
     uncertainty_planners = [
         BeamPlanner(
-            PotentialEvaluator(DegradedPushEvaluator(
+            make_evaluator(DegradedPushEvaluator(
                 push_error_rate=push_error_rate,
                 seed=seed,
                 corrupt_push_penalty=corrupt_push_penalty,
-            )),
+            ), evaluator_mode),
             depth=cheap_depth,
             width=cheap_width,
         )
@@ -155,17 +177,30 @@ def build_rows(
             state_sampler,
             states_per_level,
         ):
-            row = make_label_row(state_id, planning_state, cheap, verifier, evaluator)
+            if decision_unit == "plan":
+                row = make_plan_label_row(state_id, planning_state, cheap, verifier, evaluator.evaluator)
+            else:
+                row = make_label_row(state_id, planning_state, cheap, verifier, evaluator)
             row["base_level_id"] = base_level_id
             row["state_index"] = state_index
+            row["evaluator_mode"] = evaluator_mode
+            row["decision_unit"] = decision_unit
             think_longer_result = think_longer.plan(planning_state)
             row["a_t"] = think_longer_result.action
-            row["r_t"] = evaluate_first_action(planning_state, think_longer_result.action, evaluator)
+            row["plan_t"] = think_longer_result.plan
+            if decision_unit == "plan":
+                row["r_t"] = evaluate_plan_rollout(planning_state, think_longer_result.plan, evaluator.evaluator)
+            else:
+                row["r_t"] = evaluate_first_action(planning_state, think_longer_result.action, evaluator)
             row["think_longer_score"] = think_longer_result.score
             row["think_longer_nodes"] = think_longer_result.nodes_expanded
             uniform_true_result = uniform_true.plan(planning_state)
             row["a_u"] = uniform_true_result.action
-            row["r_u"] = evaluate_first_action(planning_state, uniform_true_result.action, evaluator)
+            row["plan_u"] = uniform_true_result.plan
+            if decision_unit == "plan":
+                row["r_u"] = evaluate_plan_rollout(planning_state, uniform_true_result.plan, evaluator.evaluator)
+            else:
+                row["r_u"] = evaluate_first_action(planning_state, uniform_true_result.action, evaluator)
             row["uniform_true_score"] = uniform_true_result.score
             row["uniform_true_nodes"] = uniform_true_result.nodes_expanded
             uncertainty = ensemble_uncertainty(planning_state, uncertainty_planners)
@@ -396,6 +431,8 @@ def main() -> None:
     parser.add_argument("--states-per-level", type=int, default=1)
     parser.add_argument("--state-sampler-depth", type=int, default=3)
     parser.add_argument("--state-sampler-width", type=int, default=8)
+    parser.add_argument("--evaluator-mode", choices=["dense", "deadlock"], default="dense")
+    parser.add_argument("--decision-unit", choices=["action", "plan"], default="action")
     parser.add_argument("--train-fraction", type=float, default=0.5)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--budgets", default=None)
@@ -425,6 +462,8 @@ def main() -> None:
             states_per_level=args.states_per_level,
             state_sampler_depth=args.state_sampler_depth,
             state_sampler_width=args.state_sampler_width,
+            evaluator_mode=args.evaluator_mode,
+            decision_unit=args.decision_unit,
         )
         train_rows, eval_rows = split_rows(rows, args.train_fraction)
         counts = summarize_labels(rows, epsilon=0.01)

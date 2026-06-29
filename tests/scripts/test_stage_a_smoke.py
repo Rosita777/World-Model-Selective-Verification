@@ -50,6 +50,41 @@ def test_build_rows_can_sample_multiple_planning_states_per_level():
     assert any(":s1" in row["level_id"] for row in rows)
 
 
+def test_build_rows_supports_deadlock_evaluator_mode():
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        cheap_depth=1,
+        cheap_width=2,
+        verifier_depth=2,
+        verifier_width=4,
+        eval_depth=2,
+        eval_width=4,
+        evaluator_mode="deadlock",
+    )
+
+    assert len(rows) >= 2
+    assert rows[0]["evaluator_mode"] == "deadlock"
+
+
+def test_build_rows_supports_plan_decision_unit():
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        cheap_depth=2,
+        cheap_width=4,
+        verifier_depth=2,
+        verifier_width=4,
+        eval_depth=2,
+        eval_width=4,
+        decision_unit="plan",
+    )
+
+    assert len(rows) >= 2
+    assert rows[0]["decision_unit"] == "plan"
+    assert {"plan_c", "plan_v", "plan_t", "plan_u"}.issubset(rows[0])
+
+
 def test_evaluate_rankers_reports_core_returns():
     rows = build_rows(push_error_rate=1.0, corrupt_push_penalty=1.0)
 
