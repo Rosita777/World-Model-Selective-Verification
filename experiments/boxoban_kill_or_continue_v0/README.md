@@ -1124,3 +1124,84 @@ main controller should be:
 This is a useful result: the controller is still lightweight, but no
 longer obviously too naive due to raw feature scale.
 ```
+
+## 2026-06-29 Update: Standardized Gate Budget Sweep
+
+We swept the verification budget for the current main controller:
+
+```text
+decision_unit = plan
+gate_feature_set = base
+gate_model = standardized_centroid
+```
+
+The sweep reuses the saved 1000-level candidate-plan rows. It does not
+regenerate planner rollouts.
+
+Result:
+
+| push error | budget | decision-aware | uncertainty | random | think-longer | uniform true 1-step |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.05 | 0.172 | 0.168 | 0.162 | 0.195 | 0.136 |
+| 0.50 | 0.10 | 0.189 | 0.187 | 0.171 | 0.195 | 0.136 |
+| 0.50 | 0.15 | 0.215 | 0.207 | 0.181 | 0.195 | 0.136 |
+| 0.50 | 0.20 | 0.235 | 0.219 | 0.192 | 0.195 | 0.136 |
+| 0.50 | 0.25 | 0.248 | 0.231 | 0.204 | 0.195 | 0.136 |
+| 0.50 | 0.30 | 0.261 | 0.242 | 0.214 | 0.195 | 0.136 |
+| 0.50 | 0.40 | 0.286 | 0.272 | 0.235 | 0.195 | 0.136 |
+| 0.50 | 0.50 | 0.296 | 0.300 | 0.257 | 0.195 | 0.136 |
+| 0.75 | 0.05 | 0.126 | 0.124 | 0.116 | 0.120 | 0.136 |
+| 0.75 | 0.10 | 0.146 | 0.143 | 0.129 | 0.120 | 0.136 |
+| 0.75 | 0.15 | 0.167 | 0.158 | 0.142 | 0.120 | 0.136 |
+| 0.75 | 0.20 | 0.187 | 0.173 | 0.155 | 0.120 | 0.136 |
+| 0.75 | 0.25 | 0.213 | 0.191 | 0.170 | 0.120 | 0.136 |
+| 0.75 | 0.30 | 0.226 | 0.209 | 0.183 | 0.120 | 0.136 |
+| 0.75 | 0.40 | 0.254 | 0.248 | 0.207 | 0.120 | 0.136 |
+| 0.75 | 0.50 | 0.271 | 0.281 | 0.234 | 0.120 | 0.136 |
+
+Paired bootstrap CI for `decision - uncertainty`:
+
+| push error | budget | mean | 95% CI |
+|---:|---:|---:|---:|
+| 0.50 | 0.05 | 0.0041 | [-0.0015, 0.0099] |
+| 0.50 | 0.10 | 0.0018 | [-0.0064, 0.0104] |
+| 0.50 | 0.15 | 0.0078 | [-0.0002, 0.0163] |
+| 0.50 | 0.20 | 0.0154 | [0.0061, 0.0247] |
+| 0.50 | 0.25 | 0.0173 | [0.0091, 0.0258] |
+| 0.50 | 0.30 | 0.0189 | [0.0114, 0.0272] |
+| 0.50 | 0.40 | 0.0139 | [0.0066, 0.0214] |
+| 0.50 | 0.50 | -0.0036 | [-0.0101, 0.0031] |
+| 0.75 | 0.05 | 0.0017 | [-0.0052, 0.0084] |
+| 0.75 | 0.10 | 0.0036 | [-0.0052, 0.0132] |
+| 0.75 | 0.15 | 0.0080 | [-0.0019, 0.0186] |
+| 0.75 | 0.20 | 0.0135 | [0.0038, 0.0242] |
+| 0.75 | 0.25 | 0.0219 | [0.0122, 0.0314] |
+| 0.75 | 0.30 | 0.0169 | [0.0085, 0.0266] |
+| 0.75 | 0.40 | 0.0062 | [-0.0011, 0.0137] |
+| 0.75 | 0.50 | -0.0103 | [-0.0173, -0.0035] |
+
+Compute note:
+
+```text
+At a fixed budget fraction, decision-aware, uncertainty, and random
+selection make the same number of verifier calls and have the same mean
+node count. The gain is therefore from choosing different states to
+verify, not from spending more compute.
+```
+
+Interpretation:
+
+```text
+The standardized gate is strongest under limited but not tiny
+verification budgets. Against uncertainty, the improvement is
+statistically clear around budget 0.20-0.30. At budgets 0.05-0.10,
+both methods are too verifier-starved for the gap to be reliable. At
+budget 0.50, uncertainty catches up, and in the harder error 0.75 regime
+it significantly overtakes the gate.
+
+This is the right paper claim: decision-aware selective verification is
+most useful when expensive verification is limited enough that allocation
+matters, but not so limited that almost no corrections are possible. The
+benefit is not monotonic in budget; it has a crossover with uncertainty
+gating once verification becomes abundant.
+```
