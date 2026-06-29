@@ -54,6 +54,19 @@ TINY_LEVELS = [
 ]
 
 DEFAULT_RATES = [0.0, 0.25, 0.5, 0.75, 1.0]
+BASE_GATE_FEATURES = [
+    "score_margin",
+    "uncertainty_proxy",
+    "cheap_score",
+    "ensemble_action_disagreement",
+    "ensemble_score_variance",
+]
+PLAN_GATE_FEATURES = BASE_GATE_FEATURES + [
+    "cheap_plan_length",
+    "cheap_plan_turns",
+    "cheap_plan_unique_actions",
+    "cheap_plan_score_per_step",
+]
 
 
 def load_levels(levels_folder: str | Path | None, limit: int | None) -> list[tuple[str, list[str]]]:
@@ -98,6 +111,30 @@ def make_evaluator(base_evaluator, evaluator_mode: str):
     if evaluator_mode == "deadlock":
         return DeadlockAwareEvaluator(base_evaluator)
     raise ValueError("evaluator_mode must be 'dense' or 'deadlock'")
+
+
+def plan_turns(plan: list[int]) -> int:
+    return sum(1 for idx in range(1, len(plan)) if plan[idx] != plan[idx - 1])
+
+
+def add_plan_features(row: dict) -> None:
+    plan = list(row.get("plan_c", []))
+    plan_length = len(plan)
+    row["cheap_plan_length"] = float(plan_length)
+    row["cheap_plan_turns"] = float(plan_turns(plan))
+    row["cheap_plan_unique_actions"] = float(len(set(plan))) if plan else 0.0
+    row["cheap_plan_score_per_step"] = (
+        float(row["cheap_score"]) / float(plan_length)
+        if plan_length else 0.0
+    )
+
+
+def gate_features_for_set(gate_feature_set: str) -> list[str]:
+    if gate_feature_set == "base":
+        return BASE_GATE_FEATURES
+    if gate_feature_set == "plan":
+        return PLAN_GATE_FEATURES
+    raise ValueError("gate_feature_set must be 'base' or 'plan'")
 
 
 def build_rows(
@@ -210,6 +247,7 @@ def build_rows(
             row["ensemble_uncertainty"] = (
                 row["ensemble_action_disagreement"] + row["ensemble_score_variance"]
             )
+            add_plan_features(row)
             rows.append(row)
     return rows
 
@@ -277,6 +315,7 @@ def policy_return_vectors(
     eval_rows: list[dict],
     budget_fraction: float,
     random_seed: int = 0,
+    gate_feature_set: str = "base",
 ) -> dict[str, list[float]]:
     uncertainty_scores = [
         float(row.get("ensemble_uncertainty", row["uncertainty_proxy"]))
@@ -300,16 +339,7 @@ def policy_return_vectors(
         "oracle": masked_return_values(eval_rows, oracle_mask),
     }
     if any(row["label"] == 1 for row in train_rows) and any(row["label"] == 0 for row in train_rows):
-        gate = fit_centroid_gate(
-            train_rows,
-            [
-                "score_margin",
-                "uncertainty_proxy",
-                "cheap_score",
-                "ensemble_action_disagreement",
-                "ensemble_score_variance",
-            ],
-        )
+        gate = fit_centroid_gate(train_rows, gate_features_for_set(gate_feature_set))
         decision_scores = [gate.score(row) for row in eval_rows]
         decision_mask = top_fraction_mask(decision_scores, budget_fraction)
         vectors["decision"] = masked_return_values(eval_rows, decision_mask)
@@ -321,6 +351,7 @@ def evaluate_rankers(
     eval_rows: list[dict],
     budget_fraction: float,
     random_seed: int = 0,
+    gate_feature_set: str = "base",
 ) -> dict:
     cheap_return = mean_policy_return(eval_rows, [False] * len(eval_rows))
     always_return = mean_policy_return(eval_rows, [True] * len(eval_rows))
@@ -371,18 +402,10 @@ def evaluate_rankers(
         "random_nodes": mean_policy_nodes(eval_rows, random_mask),
         "oracle_nodes": mean_policy_nodes(eval_rows, oracle_mask),
         "decision_nodes": None,
+        "gate_feature_set": gate_feature_set,
     }
     if any(row["label"] == 1 for row in train_rows) and any(row["label"] == 0 for row in train_rows):
-        gate = fit_centroid_gate(
-            train_rows,
-            [
-                "score_margin",
-                "uncertainty_proxy",
-                "cheap_score",
-                "ensemble_action_disagreement",
-                "ensemble_score_variance",
-            ],
-        )
+        gate = fit_centroid_gate(train_rows, gate_features_for_set(gate_feature_set))
         decision_scores = [gate.score(row) for row in eval_rows]
         decision_mask = top_fraction_mask(decision_scores, budget_fraction)
         result["decision_return"] = mean_policy_return(eval_rows, decision_mask)
@@ -396,6 +419,7 @@ def run_budget_sweep(
     eval_rows: list[dict],
     budgets: list[float],
     random_seed: int = 0,
+    gate_feature_set: str = "base",
 ) -> list[dict]:
     sweep = []
     for budget in budgets:
@@ -404,6 +428,7 @@ def run_budget_sweep(
             eval_rows,
             budget,
             random_seed=random_seed,
+            gate_feature_set=gate_feature_set,
         )
         result["budget_fraction"] = budget
         sweep.append(result)
@@ -433,6 +458,7 @@ def main() -> None:
     parser.add_argument("--state-sampler-width", type=int, default=8)
     parser.add_argument("--evaluator-mode", choices=["dense", "deadlock"], default="dense")
     parser.add_argument("--decision-unit", choices=["action", "plan"], default="action")
+    parser.add_argument("--gate-feature-set", choices=["base", "plan"], default="base")
     parser.add_argument("--train-fraction", type=float, default=0.5)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--budgets", default=None)
@@ -485,12 +511,14 @@ def main() -> None:
                     eval_rows,
                     args.budget,
                     random_seed=args.random_seed,
+                    gate_feature_set=args.gate_feature_set,
                 ),
                 "budget_sweep": run_budget_sweep(
                     train_rows,
                     eval_rows,
                     budgets,
                     random_seed=args.random_seed,
+                    gate_feature_set=args.gate_feature_set,
                 ),
                 "rows": rows,
             }

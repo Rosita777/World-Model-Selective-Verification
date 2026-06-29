@@ -1,6 +1,7 @@
 from scripts.run_stage_a_smoke import (
     build_rows,
     evaluate_rankers,
+    gate_features_for_set,
     parse_rate_list,
     parse_budget_list,
     policy_return_vectors,
@@ -83,6 +84,52 @@ def test_build_rows_supports_plan_decision_unit():
     assert len(rows) >= 2
     assert rows[0]["decision_unit"] == "plan"
     assert {"plan_c", "plan_v", "plan_t", "plan_u"}.issubset(rows[0])
+
+
+def test_build_rows_adds_plan_gate_features():
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        cheap_depth=3,
+        cheap_width=4,
+        verifier_depth=3,
+        verifier_width=4,
+        eval_depth=3,
+        eval_width=4,
+        decision_unit="plan",
+    )
+
+    assert {
+        "cheap_plan_length",
+        "cheap_plan_turns",
+        "cheap_plan_unique_actions",
+        "cheap_plan_score_per_step",
+    }.issubset(rows[0])
+
+
+def test_plan_gate_features_do_not_use_verifier_outputs():
+    feature_names = gate_features_for_set("plan")
+
+    assert all("verifier" not in name for name in feature_names)
+
+
+def test_evaluate_rankers_accepts_plan_gate_feature_set():
+    rows = build_rows(
+        push_error_rate=1.0,
+        corrupt_push_penalty=1.0,
+        cheap_depth=3,
+        cheap_width=4,
+        verifier_depth=3,
+        verifier_width=4,
+        eval_depth=3,
+        eval_width=4,
+        decision_unit="plan",
+    )
+
+    result = evaluate_rankers(rows, rows, budget_fraction=0.5, gate_feature_set="plan")
+
+    assert result["gate_feature_set"] == "plan"
+    assert isinstance(result["decision_return"], float)
 
 
 def test_evaluate_rankers_reports_core_returns():

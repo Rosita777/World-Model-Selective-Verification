@@ -863,3 +863,99 @@ Updated next work:
 4. keep the failed action-level result as internal ablation evidence
    explaining why candidate-plan verification is the right formulation.
 ```
+
+## 2026-06-29 Update: Simple Plan-Feature Gate Ablation
+
+We added a switchable gate feature set:
+
+```text
+gate_feature_set = base:
+    score_margin
+    uncertainty_proxy
+    cheap_score
+    ensemble_action_disagreement
+    ensemble_score_variance
+
+gate_feature_set = plan:
+    base features plus simple cheap-plan descriptors:
+        cheap_plan_length
+        cheap_plan_turns
+        cheap_plan_unique_actions
+        cheap_plan_score_per_step
+```
+
+Important guardrail:
+
+```text
+The plan feature set does not use verifier outputs. Features derived
+from verifier scores would leak the result of verification into the
+controller and are therefore invalid.
+```
+
+Command:
+
+```bash
+PYTHONPATH=. python scripts/run_stage_a_smoke.py \
+  --levels data/external/boxoban-sample/medium/train \
+  --limit 1000 \
+  --states-per-level 5 \
+  --state-sampler-depth 3 \
+  --state-sampler-width 8 \
+  --rates 0.50,0.75 \
+  --budgets 0.05,0.10,0.25,0.50 \
+  --cheap-depth 3 \
+  --cheap-width 8 \
+  --think-longer-depth 6 \
+  --think-longer-width 16 \
+  --uniform-true-depth 1 \
+  --uniform-true-width 4 \
+  --verifier-depth 6 \
+  --verifier-width 16 \
+  --eval-depth 6 \
+  --eval-width 16 \
+  --uncertainty-seeds 5 \
+  --evaluator-mode dense \
+  --decision-unit plan \
+  --gate-feature-set plan \
+  --out outputs/boxoban_kill_or_continue_v0/stage_b_plan_features_midstates_1000_u_d1w4.json
+```
+
+Result at `budget = 0.25`:
+
+| push error | gate features | decision-aware | uncertainty | uniform true 1-step | random | think-longer |
+|---:|---|---:|---:|---:|---:|---:|
+| 0.50 | base | 0.243 | 0.231 | 0.136 | 0.204 | 0.195 |
+| 0.50 | plan | 0.237 | 0.231 | 0.136 | 0.204 | 0.195 |
+| 0.75 | base | 0.211 | 0.191 | 0.136 | 0.170 | 0.120 |
+| 0.75 | plan | 0.209 | 0.191 | 0.136 | 0.170 | 0.120 |
+
+Paired bootstrap CI for `gate_feature_set = plan` at `budget = 0.25`:
+
+| push error | delta | mean | 95% CI |
+|---:|---|---:|---:|
+| 0.50 | decision - uniform true | 0.1008 | [0.0916, 0.1090] |
+| 0.50 | decision - random | 0.0325 | [0.0226, 0.0415] |
+| 0.50 | decision - uncertainty | 0.0062 | [-0.0032, 0.0155] |
+| 0.50 | decision - think-longer | 0.0421 | [0.0320, 0.0530] |
+| 0.75 | decision - uniform true | 0.0729 | [0.0631, 0.0819] |
+| 0.75 | decision - random | 0.0392 | [0.0274, 0.0497] |
+| 0.75 | decision - uncertainty | 0.0181 | [0.0078, 0.0288] |
+| 0.75 | decision - think-longer | 0.0889 | [0.0782, 0.0991] |
+
+Interpretation:
+
+```text
+The simple plan-feature set is not better than the base gate. It remains
+positive against uniform true, random, and think-longer, but slightly
+reduces decision-aware return compared with the base feature set.
+
+This suggests that naive aggregate plan descriptors are not enough.
+Future gate improvements should use richer plan-level evidence, such as:
+    cheap plan rollout score trajectory;
+    per-step score margins;
+    ensemble disagreement over full plans, not only first actions;
+    explicit plan validation features.
+
+For now, the main reported controller should remain the base gate in the
+candidate-plan setting.
+```
