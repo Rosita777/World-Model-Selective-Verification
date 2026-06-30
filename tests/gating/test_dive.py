@@ -1,6 +1,12 @@
 import math
 
-from wmsv.gating.dive import DIVEFeatureSchema, fit_dive_v0, fit_uncertainty_label_gate, fit_value_rank_gate
+from wmsv.gating.dive import (
+    DIVEFeatureSchema,
+    fit_dive_v0,
+    fit_risk_aware_value_gate,
+    fit_uncertainty_label_gate,
+    fit_value_rank_gate,
+)
 
 
 ROWS = [
@@ -108,3 +114,59 @@ def test_value_rank_gate_prioritizes_larger_predicted_improvements():
 
     assert high > mid > waste
     assert harmful == 0.0
+
+
+def test_risk_aware_value_gate_penalizes_harmful_flips():
+    rows = [
+        {
+            **ROWS[0],
+            "value_signal": 1.0,
+            "harm_signal": 0.0,
+            "change_signal": 1.0,
+            "delta_r": 1.0,
+            "y_change": 1,
+            "y_harm": 0,
+            "y_waste": 0,
+        },
+        {
+            **ROWS[1],
+            "value_signal": 0.8,
+            "harm_signal": 0.0,
+            "change_signal": 1.0,
+            "delta_r": 0.8,
+            "y_change": 1,
+            "y_harm": 0,
+            "y_waste": 0,
+        },
+        {
+            **ROWS[2],
+            "value_signal": 0.2,
+            "harm_signal": 0.0,
+            "change_signal": 0.0,
+            "delta_r": 0.0,
+            "y_change": 0,
+            "y_harm": 0,
+            "y_waste": 1,
+        },
+        {
+            **ROWS[3],
+            "value_signal": 1.0,
+            "harm_signal": 1.0,
+            "change_signal": 1.0,
+            "delta_r": -0.5,
+            "y_change": 1,
+            "y_harm": 1,
+            "y_waste": 0,
+        },
+    ]
+    schema = DIVEFeatureSchema(["value_signal", "harm_signal", "change_signal"])
+    gate = fit_risk_aware_value_gate(rows, schema)
+
+    safe = gate.score({"value_signal": 1.0, "harm_signal": 0.0, "change_signal": 1.0})
+    risky = gate.score({"value_signal": 1.0, "harm_signal": 1.0, "change_signal": 1.0})
+    low_value = gate.score({"value_signal": 0.2, "harm_signal": 0.0, "change_signal": 0.0})
+    heads = gate.predict_heads({"value_signal": 1.0, "harm_signal": 0.0, "change_signal": 1.0})
+
+    assert safe > risky
+    assert safe > low_value
+    assert set(heads) == {"p_change", "value_delta", "p_harm"}

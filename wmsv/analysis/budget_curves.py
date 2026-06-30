@@ -6,7 +6,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from wmsv.analysis.budgeting import compute_summary, mean_return_for_mask, threshold_budget_mask
-from wmsv.gating.dive import DIVEFeatureSchema, fit_dive_v0, fit_value_rank_gate
+from wmsv.gating.dive import DIVEFeatureSchema, fit_dive_v0, fit_risk_aware_value_gate, fit_value_rank_gate
 
 
 def evaluate_budget_curve(
@@ -19,8 +19,10 @@ def evaluate_budget_curve(
     schema = DIVEFeatureSchema(feature_names)
     gate = fit_dive_v0(train_rows, schema)
     value_rank_gate = fit_value_rank_gate(train_rows, schema)
+    risk_aware_value_gate = fit_risk_aware_value_gate(train_rows, schema)
     dive_scores = [gate.score(row) for row in eval_rows]
     value_rank_scores = [value_rank_gate.score(row) for row in eval_rows]
+    risk_aware_value_scores = [risk_aware_value_gate.score(row) for row in eval_rows]
     uncertainty_scores = [
         float(row.get("ensemble_uncertainty", row.get("uncertainty_proxy", 0.0)))
         for row in eval_rows
@@ -35,6 +37,7 @@ def evaluate_budget_curve(
             budget_fraction=float(budget),
             dive_scores=dive_scores,
             value_rank_scores=value_rank_scores,
+            risk_aware_value_scores=risk_aware_value_scores,
             uncertainty_scores=uncertainty_scores,
             oracle_scores=oracle_scores,
             random_scores=random_scores,
@@ -63,6 +66,7 @@ def _evaluate_budget(
     budget_fraction: float,
     dive_scores: list[float],
     value_rank_scores: list[float],
+    risk_aware_value_scores: list[float],
     uncertainty_scores: list[float],
     oracle_scores: list[float],
     random_scores: list[float],
@@ -70,6 +74,7 @@ def _evaluate_budget(
     masks = {
         "dive": threshold_budget_mask(dive_scores, budget_fraction),
         "value_rank": threshold_budget_mask(value_rank_scores, budget_fraction),
+        "risk_aware_value": threshold_budget_mask(risk_aware_value_scores, budget_fraction),
         "uncertainty": threshold_budget_mask(uncertainty_scores, budget_fraction),
         "oracle": threshold_budget_mask(oracle_scores, budget_fraction),
         "random": threshold_budget_mask(random_scores, budget_fraction),

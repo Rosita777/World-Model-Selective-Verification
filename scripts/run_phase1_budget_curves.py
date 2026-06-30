@@ -90,6 +90,7 @@ def _multi_seed_environment_report(
             metrics=[
                 "dive_return",
                 "value_rank_return",
+                "risk_aware_value_return",
                 "random_return",
                 "uncertainty_return",
                 "oracle_return",
@@ -97,6 +98,7 @@ def _multi_seed_environment_report(
                 "uniform_true_return",
                 "dive_nodes",
                 "value_rank_nodes",
+                "risk_aware_value_nodes",
                 "think_longer_nodes",
                 "uniform_true_nodes",
             ],

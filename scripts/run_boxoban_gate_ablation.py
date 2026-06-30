@@ -8,7 +8,7 @@ from scripts.run_boxoban_learned_pilot import _split_rows, _success_rate
 from wmsv.analysis.budget_curves import evaluate_budget_curve
 from wmsv.analysis.budgeting import mean_return_for_mask, threshold_budget_mask
 from wmsv.analysis.verification_value import auroc, positive_label_rate
-from wmsv.gating.dive import DIVEFeatureSchema, fit_dive_v0, fit_value_rank_gate
+from wmsv.gating.dive import DIVEFeatureSchema, fit_dive_v0, fit_risk_aware_value_gate, fit_value_rank_gate
 from wmsv.gating.feature_sets import available_features, parse_feature_set_list
 from wmsv.pilots.boxoban import build_boxoban_pilot_rows
 
@@ -80,10 +80,13 @@ def _summary_for_features(train_rows: list[dict], eval_rows: list[dict], feature
     schema = DIVEFeatureSchema(feature_names)
     gate = fit_dive_v0(train_rows, schema)
     value_rank_gate = fit_value_rank_gate(train_rows, schema)
+    risk_aware_value_gate = fit_risk_aware_value_gate(train_rows, schema)
     scores = [gate.score(row) for row in eval_rows]
     value_rank_scores = [value_rank_gate.score(row) for row in eval_rows]
+    risk_aware_value_scores = [risk_aware_value_gate.score(row) for row in eval_rows]
     mask20 = threshold_budget_mask(scores, 0.20)
     value_rank_mask20 = threshold_budget_mask(value_rank_scores, 0.20)
+    risk_aware_value_mask20 = threshold_budget_mask(risk_aware_value_scores, 0.20)
     random_mask20 = [(idx % 5) == 0 for idx in range(len(eval_rows))]
     return {
         "cheap_return": sum(float(row["r_c"]) for row in eval_rows) / len(eval_rows),
@@ -92,6 +95,7 @@ def _summary_for_features(train_rows: list[dict], eval_rows: list[dict], feature
         "always_verify_success": _success_rate(eval_rows, "r_v", "boxoban"),
         "dive_budget20_return": mean_return_for_mask(eval_rows, mask20),
         "value_rank_budget20_return": mean_return_for_mask(eval_rows, value_rank_mask20),
+        "risk_aware_value_budget20_return": mean_return_for_mask(eval_rows, risk_aware_value_mask20),
         "random_budget20_return": mean_return_for_mask(eval_rows, random_mask20),
         "positive_label_rate": positive_label_rate(eval_rows),
         "helpful_auroc": auroc(scores, [int(row["y_helpful"]) for row in eval_rows]),

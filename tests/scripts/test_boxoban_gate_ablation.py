@@ -25,4 +25,5 @@ def test_boxoban_gate_ablation_reports_feature_set_results(tmp_path):
     assert [item["feature_set"] for item in data["feature_set_results"]] == ["score", "uncertainty"]
     assert "helpful_auroc" in data["feature_set_results"][0]["summary"]
     assert "value_rank_budget20_return" in data["feature_set_results"][0]["summary"]
+    assert "risk_aware_value_budget20_return" in data["feature_set_results"][0]["summary"]
     assert [item["budget_fraction"] for item in data["feature_set_results"][1]["budget_curve"]] == [0.0, 0.2]

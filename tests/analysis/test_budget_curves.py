@@ -3,19 +3,28 @@ import pytest
 from wmsv.analysis.budget_curves import aggregate_budget_curves, evaluate_budget_curve
 
 
-def _row(label: int, r_c: float, r_v: float, feature: float, uncertainty: float) -> dict:
+def _row(
+    label: int,
+    r_c: float,
+    r_v: float,
+    feature: float,
+    uncertainty: float,
+    risk: float = 0.0,
+    y_harm: int = 0,
+) -> dict:
     return {
         "a_c": 0,
         "a_v": 1 if label else 0,
         "r_c": r_c,
         "r_v": r_v,
         "label": label,
-        "y_change": label,
+        "y_change": label or y_harm,
         "y_helpful": label,
-        "y_harm": 0,
-        "y_waste": 1 - label,
+        "y_harm": y_harm,
+        "y_waste": 1 - label - y_harm,
         "delta_r": r_v - r_c,
         "feature": feature,
+        "risk": risk,
         "ensemble_uncertainty": uncertainty,
         "uncertainty_proxy": uncertainty,
         "cheap_nodes": 10,
@@ -51,6 +60,7 @@ def test_evaluate_budget_curve_reports_core_budget_policies():
         "uncertainty_return",
         "oracle_return",
         "value_rank_return",
+        "risk_aware_value_return",
         "think_longer_return",
         "uniform_true_return",
     }.issubset(curve[1])
@@ -60,6 +70,7 @@ def test_evaluate_budget_curve_reports_core_budget_policies():
         "uncertainty_nodes",
         "oracle_nodes",
         "value_rank_nodes",
+        "risk_aware_value_nodes",
         "think_longer_nodes",
         "uniform_true_nodes",
     }.issubset(curve[1])
@@ -105,6 +116,27 @@ def test_evaluate_budget_curve_reports_value_rank_policy_on_toy_data():
     assert result["value_rank_return"] > result["uncertainty_return"]
     assert result["value_rank_selection"]["mean_delta_r"] == pytest.approx(0.9)
     assert result["value_rank_selection"]["total_delta_r"] == pytest.approx(1.8)
+
+
+def test_evaluate_budget_curve_reports_risk_aware_value_policy_on_toy_data():
+    rows = [
+        _row(1, 0.0, 1.0, 1.0, 0.1, risk=0.0),
+        _row(1, 0.0, 0.8, 0.8, 0.2, risk=0.0),
+        _row(0, 0.5, 0.0, 1.0, 0.9, risk=1.0, y_harm=1),
+        _row(0, 0.5, 0.5, 0.1, 1.0, risk=0.0),
+    ]
+
+    result = evaluate_budget_curve(
+        train_rows=rows,
+        eval_rows=rows,
+        feature_names=["feature", "risk"],
+        budgets=[0.5],
+        random_seed=0,
+    )[0]
+
+    assert result["risk_aware_value_selection"]["helpful_selected"] == 2
+    assert result["risk_aware_value_selection"]["harmful_selected"] == 0
+    assert result["risk_aware_value_return"] > result["uncertainty_return"]
 
 
 def test_aggregate_budget_curves_reports_mean_and_std_by_budget():

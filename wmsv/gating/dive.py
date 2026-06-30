@@ -83,6 +83,36 @@ class ValueRankGate:
         return max(self.predict_delta(row), 0.0)
 
 
+@dataclass(frozen=True)
+class RiskAwareValueGate:
+    schema: DIVEFeatureSchema
+    mean: np.ndarray
+    scale: np.ndarray
+    change_weights: np.ndarray
+    change_bias: float
+    harm_weights: np.ndarray
+    harm_bias: float
+    delta_weights: np.ndarray
+    delta_bias: float
+    alpha: float = 1.0
+
+    def _standardized(self, row: dict) -> np.ndarray:
+        return (self.schema.vector(row) - self.mean) / self.scale
+
+    def predict_heads(self, row: dict) -> dict:
+        x = self._standardized(row)
+        return {
+            "p_change": _sigmoid_scalar(float(x @ self.change_weights + self.change_bias)),
+            "value_delta": float(x @ self.delta_weights + self.delta_bias),
+            "p_harm": _sigmoid_scalar(float(x @ self.harm_weights + self.harm_bias)),
+        }
+
+    def score(self, row: dict) -> float:
+        heads = self.predict_heads(row)
+        positive_value = max(heads["value_delta"], 0.0)
+        return positive_value * (1.0 - heads["p_harm"]) - self.alpha * heads["p_harm"]
+
+
 def _feature_matrix(rows: Sequence[dict], schema: DIVEFeatureSchema) -> np.ndarray:
     return np.stack([schema.vector(row) for row in rows]).astype(np.float64)
 
@@ -173,3 +203,27 @@ def fit_value_rank_gate(rows: Sequence[dict], schema: DIVEFeatureSchema) -> Valu
         np.array([float(row["delta_r"]) for row in rows], dtype=np.float64),
     )
     return ValueRankGate(schema=schema, mean=mean, scale=scale, weights=weights, bias=bias)
+
+
+def fit_risk_aware_value_gate(
+    rows: Sequence[dict],
+    schema: DIVEFeatureSchema,
+    alpha: float = 1.0,
+) -> RiskAwareValueGate:
+    features = _feature_matrix(rows, schema)
+    x, mean, scale = _standardize(features)
+    change_w, change_b = _fit_binary_head(x, np.array([int(row["y_change"]) for row in rows], dtype=np.float64))
+    harm_w, harm_b = _fit_binary_head(x, np.array([int(row["y_harm"]) for row in rows], dtype=np.float64))
+    delta_w, delta_b = _fit_regression_head(x, np.array([float(row["delta_r"]) for row in rows], dtype=np.float64))
+    return RiskAwareValueGate(
+        schema=schema,
+        mean=mean,
+        scale=scale,
+        change_weights=change_w,
+        change_bias=change_b,
+        harm_weights=harm_w,
+        harm_bias=harm_b,
+        delta_weights=delta_w,
+        delta_bias=delta_b,
+        alpha=float(alpha),
+    )

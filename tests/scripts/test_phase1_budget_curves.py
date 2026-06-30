@@ -57,4 +57,5 @@ def test_phase1_budget_curve_script_aggregates_multiple_seeds(tmp_path):
     assert data["boxoban"]["aggregate_budget_curve"][0]["budget_fraction"] == 0.0
     assert "dive_return_mean" in data["boxoban"]["aggregate_budget_curve"][0]
     assert "value_rank_return_mean" in data["boxoban"]["aggregate_budget_curve"][0]
+    assert "risk_aware_value_return_mean" in data["boxoban"]["aggregate_budget_curve"][0]
     assert "random_return_std" in data["maze"]["aggregate_budget_curve"][1]
