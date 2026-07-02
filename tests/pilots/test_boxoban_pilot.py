@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from wmsv.pilots.boxoban import build_boxoban_pilot_rows
 
 
@@ -35,6 +37,35 @@ def test_build_boxoban_pilot_rows_can_use_boxoban_level_folder():
     assert len(rows) == 12
     assert any(row["base_source"] == "boxoban" for row in rows)
     assert any(row["a_c"] != row["a_v"] for row in rows)
+
+
+def test_build_boxoban_pilot_rows_augments_small_folder_with_generated_levels(tmp_path: Path):
+    folder = tmp_path / "tiny_boxoban"
+    folder.mkdir()
+    (folder / "000.txt").write_text(
+        "\n".join(
+            [
+                "; tiny",
+                "#####",
+                "#@$.#",
+                "#   #",
+                "#####",
+            ]
+        )
+    )
+
+    rows = build_boxoban_pilot_rows(
+        limit=40,
+        seed=5,
+        levels_path=str(folder),
+        train_level_count=20,
+    )
+
+    sources = {row["base_source"] for row in rows}
+    level_prefixes = {str(row["level_id"]).split(":")[0] for row in rows}
+
+    assert "generated" in sources
+    assert any(level_id.startswith("generated-5-") for level_id in level_prefixes)
 
 
 def test_boxoban_pilot_has_nonconstant_gate_features():

@@ -70,8 +70,10 @@ uniform-true baseline:
 Current limitation:
 
 ```text
-data/external/boxoban-sample/medium/train currently contains one sample file.
-The existing 200-row runs are useful pilots, not the final main experiment.
+data/external/boxoban-sample/medium/train currently contains one sample file
+with 1000 levels. This is enough for 1000-row smoke runs, but 3000-row
+final-scale runs require either a larger external Boxoban subset or generated
+Sokoban augmentation.
 ```
 
 Main-experiment target:
@@ -93,8 +95,9 @@ seeds:
 Required improvement before paper tables:
 
 ```text
-Replace or augment the one-file sample with a larger Boxoban subset, or create
-a deterministic generated Sokoban set with documented level generation.
+For 1000-row smoke experiments, use the existing sample file.
+For 3000-row final-scale experiments, augment it with deterministic generated
+Sokoban levels unless a larger external Boxoban subset is added.
 ```
 
 ### Environment B: PointMaze / Maze
@@ -292,6 +295,15 @@ Option B:
 
 Preferred: Option A if data download is easy; Option B if network/data access is
 annoying.
+
+Current implementation status:
+
+```text
+wmsv.data.generated_sokoban provides deterministic generated Sokoban levels.
+build_boxoban_pilot_rows augments a too-small external folder with generated
+levels. The 1000-level local sample is used first; generated levels fill any
+remaining requested level count.
+```
 
 ### Step 3: run smoke-scale main curves
 

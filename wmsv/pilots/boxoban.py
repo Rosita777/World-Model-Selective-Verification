@@ -6,6 +6,7 @@ from wmsv.analysis.stage_a import evaluate_plan_rollout, make_plan_label_row
 from wmsv.analysis.uncertainty import ensemble_uncertainty
 from wmsv.analysis.verification_value import add_verification_labels
 from wmsv.data.boxoban import iter_boxoban_levels
+from wmsv.data.generated_sokoban import generate_sokoban_levels
 from wmsv.envs.sokoban import parse_level
 from wmsv.envs.sokoban import SokobanState
 from wmsv.planning.beam import BeamPlanner
@@ -32,7 +33,7 @@ def build_boxoban_pilot_rows(
     train_level_count: int = 4,
 ) -> list[dict]:
     level_limit = max(int(limit), int(train_level_count), 8)
-    levels, source = _load_levels(levels_path, limit=level_limit)
+    levels = _load_levels(levels_path, limit=level_limit, seed=seed)
     cheap_evaluator = PotentialEvaluator(
         DegradedPushEvaluator(push_error_rate=0.5, seed=seed),
         scale=0.1,
@@ -56,7 +57,7 @@ def build_boxoban_pilot_rows(
     rows: list[dict] = []
     idx = 0
     while len(rows) < int(limit):
-        level_id, state = levels[idx % len(levels)]
+        level_id, state, source = levels[idx % len(levels)]
         row = make_plan_label_row(
             f"{level_id}:r{idx}",
             state,
@@ -94,15 +95,22 @@ def build_boxoban_pilot_rows(
     return rows
 
 
-def _load_levels(levels_path: str | None, limit: int) -> tuple[list[tuple[str, SokobanState]], str]:
+def _load_levels(levels_path: str | None, limit: int, seed: int = 0) -> list[tuple[str, SokobanState, str]]:
+    levels: list[tuple[str, SokobanState, str]] = []
     if levels_path is not None and Path(levels_path).exists():
-        levels = [
-            (level.level_id, parse_level(level.lines))
+        levels.extend(
+            (level.level_id, parse_level(level.lines), "boxoban")
             for level in iter_boxoban_levels(levels_path, limit=limit)
-        ]
-        if levels:
-            return levels, "boxoban"
-    return [(f"tiny-{idx}", parse_level(lines)) for idx, lines in enumerate(TINY_LEVELS)], "tiny"
+        )
+    if len(levels) < int(limit):
+        needed = int(limit) - len(levels)
+        levels.extend(
+            (level.level_id, parse_level(level.lines), "generated")
+            for level in generate_sokoban_levels(count=needed, seed=seed)
+        )
+    if levels:
+        return levels
+    return [(f"tiny-{idx}", parse_level(lines), "tiny") for idx, lines in enumerate(TINY_LEVELS)]
 
 
 def _same_state(left: SokobanState, right: SokobanState) -> bool:
